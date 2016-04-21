@@ -1,0 +1,98 @@
+---
+title: "NOAA_Storm_Assignment"
+author: "Bowen Liu"
+date: "February 10, 2016"
+synopsis: this work aims to reach two goals. First, find the top harmful event types for injuries and fatalites. Second, find the top event types that did the most economic damage. The basic approach is to sort the event type by the sum of injuries, fatalities, and economic damage. The final result could be show directly in the graphs.
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+# Data Processing
+```{r, message=FALSE}
+# Download the data zip package
+download.file(url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", destfile = "storm/repdata_data_stormdata.csv.bz2")
+# unbzip file
+bz <- bzfile("storm/repdata_data_stormdata.csv.bz2", "rt")
+# read csv file
+data <- read.csv(bz, header = TRUE, stringsAsFactors = TRUE)
+# subset the needed columns of event type, fatality, injury, property damage, and crop damage
+target_data <- data[, c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")]
+```
+
+Qestion 1: Across the United States, which types of events (as indicated in the 𝙴𝚅𝚃𝚈𝙿𝙴 variable) are most harmful with respect to population health?
+
+Solution1: I need to subset event type along with the Fatalities and Injuries first, and then sort the subset by the sum of Fatalities and Injuries seperatly to get the most harmful type of event
+
+```{r}
+# load dplyr package to wrap up data1 and replace the NAs with 0
+library(dplyr)
+new_data <- tbl_df(target_data) %>% replace(is.na(.), 0)
+# subset the injury and data
+data1 <- select(new_data, EVTYPE, INJURIES, FATALITIES)
+# group the injury data by event type, summarise the sum of injuries and fatalities
+sort_by_evtype <- group_by(data1, EVTYPE) %>% 
+        summarize(INJURIES = sum(INJURIES), FATALITIES = sum(FATALITIES))
+# sort by injury
+evtype_by_injury <- arrange(sort_by_evtype, desc(INJURIES))
+# sort by fatalities
+evtype_by_fatality <- arrange(sort_by_evtype, desc(FATALITIES))
+```
+
+Question 2: Across the United States, which types of events have the greatest economic consequences?
+
+Solution 2: first modifiy the exponent into numbers, then calculate the total economic value, and then sort to get the greatest economic consequences.
+
+```{r}
+# subset the needed columns
+data2 <- select(new_data, EVTYPE, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+# create the default levels and merge it into property and crop damage exponent levels
+defaultlist <- c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+levels(data2$PROPDMGEXP) <- c(levels(data2$PROPDMGEXP), defaultlist)
+levels(data2$CROPDMGEXP) <- c(levels(data2$CROPDMGEXP), defaultlist)
+
+# modify the exponent value of property damage exponentinto numbers
+data2$PROPDMGEXP[data2$PROPDMGEXP == ""] <- 0
+data2$PROPDMGEXP[data2$PROPDMGEXP == "?" | data2$PROPDMGEXP == "+"] <- 1
+data2$PROPDMGEXP[data2$PROPDMGEXP == "K" | data2$PROPDMGEXP == "K"] <- 3
+data2$PROPDMGEXP[data2$PROPDMGEXP == "m" | data2$PROPDMGEXP == "M"] <- 6
+data2$PROPDMGEXP[data2$PROPDMGEXP == "b" | data2$PROPDMGEXP == "B" ] <- 9
+# change the character into numeric
+data2$PROPDMGEXP <- as.numeric(data2$PROPDMGEXP)
+
+# modify the exponent value of crop damage exponentinto numbers
+data2$CROPDMGEXP[data2$CROPDMGEXP == ""] <- 0
+data2$CROPDMGEXP[data2$CROPDMGEXP == "?" | data2$CROPDMGEXP == "+"] <- 1
+data2$CROPDMGEXP[data2$CROPDMGEXP == "K" | data2$CROPDMGEXP == "K"] <- 3
+data2$CROPDMGEXP[data2$CROPDMGEXP == "m" | data2$CROPDMGEXP == "M"] <- 6
+data2$CROPDMGEXP[data2$CROPDMGEXP == "b" | data2$CROPDMGEXP == "B" ] <- 9
+# change the character into numeric
+data2$CROPDMGEXP <- as.numeric(data2$CROPDMGEXP)
+
+damage_data <- mutate(data2, total_damage = PROPDMG * 10 ^ PROPDMGEXP + CROPDMGEXP * 10 ^ CROPDMGEXP) %>% group_by(EVTYPE) %>% summarise(total_damge = sum(total_damage) / 10 ^ 12) %>% arrange(desc(total_damge))
+```
+
+# Results
+1st graph: use evtype_by_injury and evtype_by_fatality to show the top 3 most harmful event type.
+
+```{r, echo=TRUE}
+barplot(evtype_by_injury$INJURIES[1:3], names.arg = evtype_by_injury$EVTYPE[1:3],  xlab = "Event Type", ylab = "Injuries", main = "Top 3 Harmful Event Type to Cause Injury")
+```
+
+It shows Tornado, Tstm Wind, and Hail are the top 3 harmful events causing injury
+
+2nd graph:
+
+```{r, echo=TRUE}
+barplot(evtype_by_fatality$FATALITIES[1:3], names.arg = evtype_by_fatality$EVTYPE[1:3],  xlab = "Event Type", ylab = "Fatalities", main = "Top 3 Harmful Event Type to Cause Fatality")
+```
+
+It shows Tornado, Heat, Tstm Wind are the top 3 harmful events causing fatality
+
+3rd graph:
+
+```{r, echo=TRUE}
+barplot(damage_data$total_damge[1:3], names.arg = damage_data$EVTYPE[1:3],  xlab = "Event Type", ylab = "Total Economic Damage(trillion $)", main = "Top 3 Harmful Event Type to Cause Economic Damage")
+```
+## It shows River Flood, Heat, Freeze are the top 3 harmful events causing economic damage

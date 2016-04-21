@@ -1,0 +1,122 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Bowen Liu"
+date: "March 5, 2016"
+output: html_document
+---
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Download the training and test data
+
+```{r,cache=TRUE}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",  destfile = "pml-training.csv")
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+```
+
+## Prepare the data
+
+```{r,cache=TRUE}
+training_data <- read.csv("./pml-training.csv", na.strings = c("", "NA"))
+dim(training_data)
+str(training_data)
+```
+
+remove unrelevant columns
+
+```{r}
+unrel_cols <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+training_data <- subset(training_data, select = -which(names(training_data) %in% unrel_cols))
+dim(training_data)
+```
+
+remove NA columns
+
+```{r}
+training_data <- training_data[, colSums(is.na(training_data)) == 0]
+dim(training_data)
+```
+
+remove colmns with low variance
+
+```{r}
+library(caret)
+# classe is not numeric for calculate variance
+numeric_cols <- training_data[, sapply(training_data, is.numeric)]
+near0var <- nearZeroVar(numeric_cols, saveMetrics = TRUE)
+near0var
+# no varialbes has TRUE nzv, if it does, we need to remove like the following
+#training_data <- training_data[, near0var[, "nzv"] == FALSE]
+```
+
+remove highly correlated variables
+
+```{r}
+cors <- cor(numeric_cols)
+high_cors <- findCorrelation(cors, cutoff = 0.9, verbose = TRUE)
+high_cors
+training_data2 <- training_data[, -high_cors]
+dim(training_data2)
+```
+
+Partition training data into training and testing
+
+```{r,cache=TRUE}
+set.seed(4433)
+inTrain <- createDataPartition(y=training_data2$classe, p=0.7, list = FALSE)
+training <- training_data2[inTrain, ]
+testing <- training_data2[-inTrain, ]
+dim(training)
+dim(testing)
+```
+
+## Analyze the data
+
+Since the binary "classes" of the data set is used as the label, we are going to try the
+classifications of tree and random forests.
+
+1st is the tree
+
+```{r,cache=TRUE}
+tr_modFit <- train(classe ~ ., method="rpart", data=training)
+tr_modFit$finalModel
+
+# plot the modeling results
+library(rattle)
+fancyRpartPlot(tr_modFit$finalModel)
+
+# cross validation
+tr_pred <- predict(tr_modFit, testing)
+tr_predMatrix <- table(tr_pred, testing$classe)
+tr_accuracy <- sum(diag(tr_predMatrix)) / sum(tr_predMatrix)
+tr_accuracy
+```
+
+2nd is the random forests
+
+```{r,cache=TRUE}
+require(randomForest)
+rt_modFit <- randomForest(classe ~ ., data=training, ntree=500, importance=TRUE)
+rt_modFit
+
+# plot the impact of each variance
+varImpPlot(rt_modFit, )
+
+# cross  validation
+rt_pred <- predict(rt_modFit, testing)
+rt_predMatrix <- table(rt_pred, testing$classe)
+rt_accuracy <- sum(diag(rt_predMatrix)) / sum(rt_predMatrix)
+rt_accuracy
+```
+
+## Test the model
+
+```{r}
+# Since the random forests model has better accuracy, we are going to use that to test
+testing_data <- read.csv("./pml-testing.csv", na.strings = c("", "NA"))
+str(testing_data)
+predict(rt_modFit, testing_data)
+```
+Data source:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.

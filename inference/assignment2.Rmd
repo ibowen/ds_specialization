@@ -1,0 +1,63 @@
+---
+title: "inferential statistics assignment 2"
+author: "Bowen Liu"
+date: "February 20, 2016"
+output: pdf_document
+---
+
+# Analyze the ToothGrowth data in the R datasets package.
+
+## 1. Load the ToothGrowth data and perform some basic exploratory data analyses
+
+```{r}
+library(ggplot2)
+data("ToothGrowth")
+str(ToothGrowth)
+ggplot(ToothGrowth, aes(dose, len)) +
+    geom_point(aes(shape = supp))
+```
+
+It appears that there is a positive correlation between dose and tooth length
+
+## 2. Provide a basic summary of the data.
+
+```{r}
+summary(ToothGrowth)
+summary(lm(ToothGrowth$len ~ ToothGrowth$dose))
+```
+
+## 3. Use confidence intervals and/or hypothesis tests to compare tooth growth by supp and dose.
+```{r}
+# null hypothesis 1: supplements have the same tooth growth effect
+hypoth1<-t.test(len ~ supp, data = ToothGrowth)
+hypoth1$conf.int
+hypoth1$p.value
+```
+
+In hypothesis 1, the confidence interval covers 0 and the pvalue is greater than 0.05. We cannot reject null hypothesis1
+
+
+In hypothesis 2, we set null hypothesis with different dose to if the supplements have the same tooth growth effect
+
+```{r}
+df <- data.frame()
+lvs <- levels(factor(ToothGrowth$dose))
+for (lv in lvs) {
+    hypoth2 <- t.test(len ~ supp, data = subset(ToothGrowth, dose == lv))
+    df <- rbind(df, c(hypoth2$conf.int, hypoth2$p.value))
+}
+colnames(df) <- c("-2sigma", "2sigma", "p-value")
+rownames(df) <- c("dose=0.5", "dose=1", "dose=2")
+df
+```
+
+In hypothesis 2, only dose=2 covering 0 value and with p-value > 0.05, accepts the null hypothese.
+
+## 4. State your conclusions and the assumptions needed for your conclusions.
+Orange juice and ascorbic acid could have different tooth growth for doses of 0.5 and 1.0. And they could have the same tooth growth for dose of 2.0.
+
+Assumptions:
+
+-Tooth length conforms to T distribution
+
+-No other factors affect tooth length

@@ -1,0 +1,46 @@
+---
+title: "inferential statistics assignment 1"
+author: "Bowen Liu"
+date: "February 19, 2016"
+output: pdf_document
+---
+# Investigate the exponential distribution in R and compare it with the Central Limit Theorem.
+The exponential distribution: rexp(n, lambda)
+The rate parameter of lamba = 0.2
+The mean of exponential distribution is 1/lambda = 1/0.2 = 5
+The standard deviation is also 1/lambda = 5
+The sample size is 40
+The simulation size is 1000
+
+```{r}
+set.seed(1000) # set the seed for replicating the experiment
+simu_size <- 1000
+sample_size <- 40
+lambda <- 0.2
+# simulate 1000 times of sampling
+simu_data <- replicate(simu_size, rexp(sample_size, lambda))
+# create a dataframe to store means and variance of sampling and population
+df <- data.frame(Mean=c(mean(colMeans(simu_data)), 1/lambda),
+                 Variance=c(var(colMeans(simu_data)), 1/lambda^2))
+rownames(df) <- c("sample", "polulation")
+df
+```
+
+as we can see, the mean of sampling distribution of sample mean is 4.986963, pretty close to
+the population mean of 5. And the the variance of sampling distribution of sample
+mean is 0.654343 is, very close to the population variance of 25/sqrt(40)
+
+```{r,echo=FALSE}
+library(ggplot2)
+sample_means <- colMeans(simu_data)
+mean_of_sample_means <- mean(sample_means)
+sd_of_sample_means <- sd(sample_means)
+zscore <- (sample_means - mean_of_sample_means) / sd_of_sample_means
+qplot(zscore, geom = "blank") +
+    geom_line(aes(y = ..density.., colour = 'Sample Distribution'), stat = 'density') +  
+    stat_function(fun = dnorm, aes(colour = 'Normal Distribution')) +
+    scale_colour_manual(name = 'Comparision', values = c('red', 'blue')) +
+    ylab("density") + xlab("z-score") + ggtitle("Sampling Distribution of Sample Means") 
+```
+
+we can see from the plotting, the sample distribution is very close to the normal distribution.

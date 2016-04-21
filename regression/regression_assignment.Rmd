@@ -1,0 +1,102 @@
+---
+title: "Regression Models Course Project"
+author: "Bowen Liu"
+date: "March 9, 2016"
+output: html_document
+---
+# Executive Summary
+This work aims to explore the relationship between a set of variables and miles per gallon(MPG) for the automobile industry. And it tries to answer the following two questions: 
+1. “Is an automatic or manual transmission better for MPG”
+2. "Quantify the MPG difference between automatic and manual transmissions"
+
+The analysis was conducted using simple(mpg ~ am) and multivariant regression(mpg ~ wt + qsec + am) models. And the modeling results show that manual transmission has higher MPG than automatic one. In the simple model, the average mpg is 17.147. And the mpg increate rate would reach 7.245(beta1) when having the manual transimission instead of automatic way. Therefore the automatic transmission is better for MPG for manual way.
+
+Exploratory data analysis is shown in the Appendix.
+# Analysis of Linear Regression only considering mpg and am
+```{r,cache=TRUE}
+data(mtcars)
+mtcars2 <- mtcars
+fit1 <- lm(mpg ~ am, data = mtcars2)
+summary(fit1)$coef
+
+# inferential statistics for beta1. H0 hypothesis: beta1 = 0, H1: beta1 != 0
+beta1_e <- summary(fit1)$coef[2,1]
+beta1_sd <- summary(fit1)$coef[2,2]
+n <- length(mtcars2$mpg)
+pt(beta1_e/beta1_sd, df = n - 2, lower.tail = FALSE) # probability of t-dist
+# The probability is less than 5%, and we reject H0 hypothesis in favor of H1.
+# So there is significant difference of MPG exerted by beta1 at alpha of 0.05
+```
+The intercept 17.147 is the average MPG for automatic transmissions. The beta 1 of 7.245 is the increase rate for manual transmission. The linear expression of 17.147 + 7.245*beta1 represents the average MPG for manual transmissions.
+
+# Mulivariant regression, use stats.step to find the best model
+```{r}
+library(stats)
+fitall <- lm(mpg ~ ., data = mtcars2)
+bestfit <- step(fitall, direction = "both", trace = FALSE)
+summary(bestfit)
+```
+We get the best model of mpg ~ wt + qsec + am with adjusted R2=0.833t. Then we need to compare the bestfit with fit1 to check the variable confidence
+```{r}
+anova(fit1, bestfit)
+```
+From the results, bestfit has very high significance, so both wt and qsec have significant effect on the model.
+
+# Residual Plot and Dianogsis
+```{r,cache=TRUE}
+library(ggfortify) #install.packages("ggfortify")
+autoplot(bestfit, label.size = 2)
+```
+Based on the dignostic plots:
+1. "Residuals vs Fitted" has randomly scattered values which prove that there no salient dependence among regressors.
+2. "Normal Q-Q" has most points staying on the line proving that the residuals are normally distributed.
+3. "Scale-Location" has points scattering around the lines showing stable variance.
+4. "Residual vs Leverage" has only several outliers and leverages on top and right.
+
+<!-- # Find outliers and leverages -->
+<!-- ```{r,message=FALSE} -->
+<!-- leverage <- hatvalues(bestfit) -->
+<!-- tail(sort(leverage),3) -->
+
+<!-- influential <- dfbetas(bestfit) -->
+<!-- tail(sort(influential[,4]),3) -->
+<!-- ``` -->
+
+# Appendix exploratary data analysis
+### Basic exploring
+```{r,warning=FALSE}
+?mtcars # check the variables (0 = automatic, 1 = manual)
+str(mtcars2)
+# check the mean and sd
+mean_sd <- rbind(tapply(mtcars2$mpg, mtcars2$am, mean), tapply(mtcars2$mpg, mtcars2$am, sd))
+colnames(mean_sd) <- c("automatic", "manual")
+rownames(mean_sd) <- c("mean", "sd")
+mean_sd
+# boxplot the mpg by each transmission way
+library(ggplot2)
+mtcars2 <- mtcars
+ggplot(data = mtcars2, aes(x = factor(am), y = mpg)) +
+    geom_boxplot() +
+    scale_x_discrete(labels = c("automatic", "manual"))
+```
+### Explore the correlations
+```{r,cache=TRUE,warning=FALSE}
+cor(mtcars2)
+# It seems each variable has stroing correlation with mpg
+library(GGally)
+ggpairs(mtcars2)
+```
+<!-- ### Explore the histograms -->
+<!-- ```{r,cache=TRUE,warning=FALSE,message=FALSE} -->
+<!-- library(gridExtra) -->
+<!-- mpg_hist <- qplot(mtcars2$mpg);cly_hist <- qplot(mtcars2$cyl) -->
+<!-- disp_hist <- qplot(mtcars2$disp);hp_hist <- qplot(mtcars2$hp) -->
+<!-- drat_hist <- qplot(mtcars2$drat);wt_hist <- qplot(mtcars2$wt) -->
+<!-- qsec_hist <- qplot(mtcars2$qsec);vs_hist <- qplot(mtcars2$vs) -->
+<!-- am_hist <- qplot(mtcars2$am);gear_hist <- qplot(mtcars2$gear) -->
+<!-- carb_hist <- qplot(mtcars2$carb) -->
+
+<!-- grid.arrange(mpg_hist, cly_hist, disp_hist, hp_hist, drat_hist, wt_hist, qsec_hist -->
+<!-- , vs_hist, am_hist, gear_hist, carb_hist, ncol = 3) -->
+<!-- ``` -->
+
