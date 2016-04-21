@@ -1,0 +1,110 @@
+---
+title: "capstone_week1"
+author: "Bowen Liu"
+date: "April 20, 2016"
+output: html_document
+---
+
+The en_US.twitter.txt has how many lines of textÌ∫ù has how many lines of text?
+
+```{r,cache=TRUE, warning=FALSE}
+# read twitter txt
+con <- file("./data/en_US/en_US.twitter.txt", "r") 
+readLines(con, 1) 
+readLines(con, 5) 
+
+lines_twitter <- readLines(con)
+len_twitter <- length(lines_twitter)
+str(lines_twitter) # 2,360,142
+
+# read news txt
+con <- file("./data/en_US/en_US.news.txt", "r") 
+readLines(con, 1) 
+readLines(con, 5) 
+
+lines_news <- readLines(con)
+len_news <- length(lines_news)
+str(lines_news) # 1,010,236
+
+# read blogs txt
+con <- file("./data/en_US/en_US.blogs.txt", "r") 
+readLines(con, 1) 
+readLines(con, 5) 
+
+lines_blog <- readLines(con)
+len_blog <- length(lines_blog)
+str(lines_blog)
+
+# close connection
+close(con)
+```
+
+What is the length of the longest line seen in any of the three en_US data sets?
+
+```{r,cache=TRUE, warning=FALSE}
+# Twitter count
+longest_len <- 0
+for (i in 1 : len_twitter) {
+    longest_len <- max(longest_len, nchar(lines_twitter[i]))
+}
+paste('The longest line in Twitter is : ', longest_len)
+# News count
+longest_len <- 0
+for (i in 1 : len_news) {
+    longest_len <- max(longest_len, nchar(lines_news[i]))
+}
+paste('The longest line in News is : ', longest_len)
+# Blog count
+longest_len <- 0
+for (i in 1 : len_blog) {
+    longest_len <- max(longest_len, nchar(lines_blog[i]))
+}
+paste('The longest line in Blog is : ', longest_len)
+```
+
+In the en_US twitter data set, if you divide the number of lines where the word "love" (all lowercase) occurs by the number of lines the word "hate" (all lowercase) occurs, about what do you get?
+
+```{r,cache=TRUE, warning=FALSE}
+love_count <- 0
+hate_count <- 0
+for (i in 1 : len_twitter) {
+    if (grepl("\\blove\\b", lines_twitter[i], perl = TRUE)) {
+        love_count <- love_count + 1;
+    }
+    if (grepl("\\bhate\\b", lines_twitter[i], perl = TRUE)) {
+        hate_count <- hate_count + 1;
+    }
+}
+paste("love over hate: ", love_count / hate_count)
+```
+
+The one tweet in the en_US twitter data set that matches the word "biostats" says what?
+
+```{r,cache=TRUE, warning=FALSE}
+for (i in 1 : len_twitter) {
+    if (grepl("biostats", lines_twitter[i], perl = TRUE)) {
+        print(lines_twitter[i])
+    }
+}
+```
+
+How many tweets have the exact characters "A computer once beat me at chess, but it was no match for me at kickboxing". (I.e. the line matches those characters exactly.)
+
+```{r,cache=TRUE, warning=FALSE}
+tweet_counts <- 0
+for (i in 1 : len_twitter) {
+    if (grepl("^A computer once beat me at chess, but it was no match for me at kickboxing$", lines_twitter[i], perl = TRUE)) {
+        tweet_counts <- tweet_counts + 1
+    }
+}
+paste("Exact characters count: ", tweet_counts)
+```
+
+## Sample the file
+
+```{r,cache=FALSE, warning=FALSE}
+sample_size <- floor(0.5 * len_twitter)
+training_index <- sample(seq_len(len_twitter), size = sample_size)
+sample_twitter <- lines_twitter[training_index]
+#write(sample_twitter, file = './data/en_US/en_US.twitter_sample.txt')
+```
