@@ -1,0 +1,315 @@
+---
+title: "Capstone Project week2"
+author: "Bowen Liu"
+date: "April 20, 2016"
+output: html_document
+---
+
+## Load files
+
+```{r,cache=TRUE, warning=FALSE, message=FALSE}
+# read twitter txt
+con <- file("./data/en_US/en_US.twitter.txt", "r") 
+readLines(con, 5) 
+
+lines_twitter <- readLines(con)
+len_twitter <- length(lines_twitter)
+str(lines_twitter) # 2,360,142
+
+# read news txt
+con <- file("./data/en_US/en_US.news.txt", "r") 
+readLines(con, 5) 
+
+lines_news <- readLines(con)
+len_news <- length(lines_news)
+str(lines_news) # 1,010,236
+
+# read blogs txt
+con <- file("./data/en_US/en_US.blogs.txt", "r") 
+readLines(con, 5) 
+
+lines_blog <- readLines(con)
+len_blog <- length(lines_blog)
+str(lines_blog)
+
+# close connection
+close(con)
+```
+
+### Sample 10,000 records respectively
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+sample_size <- 10000
+training_index <- sample(seq_len(len_twitter), size = sample_size)
+sample_twitter <- lines_twitter[training_index]
+write(sample_twitter, file = './data/en_US/en_US.twitter_sample.txt')
+
+# sample_size <- floor(0.1 * len_news)
+training_index <- sample(seq_len(len_news), size = sample_size)
+sample_news <- lines_news[training_index]
+write(sample_news, file = './data/en_US/en_US.news_sample.txt')
+
+# sample_size <- floor(0.1 * len_blog)
+training_index <- sample(seq_len(len_blog), size = sample_size)
+sample_blog <- lines_blog[training_index]
+write(sample_blog, file = './data/en_US/en_US.blog_sample.txt')
+```
+
+## Text preprocessing
+
+### Define functions to clean text and count words
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# function to load the sample file into a one line list
+load_text <- function(path) {
+    con <- file(path, 'r')
+    text <- readLines(con)
+    # paste all news sentences into one long sentence
+    text <- paste(as.list(text), collapse = ' ')
+    close(con)
+    text
+}
+# function to clean text
+clean_text <- function(dirty_text) {
+    # remove non-words, whitespace, but keep . for ngrams
+    clean_text <- gsub(x = dirty_text, pattern = '[^\\w\\s\\.]', replacement = "", perl=TRUE)
+    # remove ellipse '...'
+    clean_text <- gsub(x = clean_text, pattern = '[.]{2,}', replacement = "", perl=TRUE)
+    # change sentence period, and space between the last word and the period
+    clean_text <- gsub(x = clean_text, pattern = '[.]\\ +(?=[A-Z])', replacement = " . ", perl=TRUE)
+    # lower case
+    clean_text <- tolower(clean_text)
+    clean_text
+}
+
+# function to deliver unigram, bigram, and trigram
+library(tm)
+# unigram_count
+unigram_count <- function(clean_text, stopwords = FALSE) {
+    if (stopwords) {
+        clean_text  <- removeWords(clean_text, stopwords('english'))
+    }
+    # split sentences by whitespace
+    words <- strsplit(clean_text, split = '\\s+')[[1]]
+    # unigram
+    freq.unigram <- sort(table(words), decreasing = TRUE)
+    freq.unigram <- as.data.frame(freq.unigram)
+    freq.unigram$name <- rownames(freq.unigram)
+    freq.unigram
+}
+# bigram_count
+bigram_count <- function(clean_text, stopwords = FALSE) {
+    if (stopwords) {
+        clean_text  <- removeWords(clean_text, stopwords('english'))
+    }
+    # split sentences by whitespace
+    words <- strsplit(clean_text, split = '\\s+')[[1]]
+    # remove the head word and tail one '.'
+    words2 <- c(words[-1], '.')
+    pairs <- cbind(words, words2)
+    # subset the pairs without '.'
+    pairs <- subset(pairs, words != "." & words2 != ".")
+    # paste the pairs into string
+    bigram <- paste(pairs[,1], pairs[,2], sep = " ")
+    # bigram frequency
+    freq.bigram <- sort(table(bigram), decreasing = TRUE)
+    freq.bigram <- as.data.frame(freq.bigram)
+    freq.bigram$name <- rownames(freq.bigram)
+    freq.bigram
+}
+# trigram count
+trigram_count <- function(clean_text, stopwords = FALSE) {
+    if (stopwords) {
+        clean_text  <- removeWords(clean_text, stopwords('english'))
+    }
+    # split sentences by whitespace
+    words <- strsplit(clean_text, split = '\\s+')[[1]]
+    # remove the head word and tail one '.'
+    words2 <- c(words[-1], '.')
+    words3 <- c(words2[-1], '.')
+    pairs3 <- cbind(words, words2, words3)
+    pairs3 <- subset(pairs3, words != "." & words2 != "." & words3 != ".")
+    trigram <- paste(pairs3[,1], pairs3[,2], pairs3[,3], sep = " ")
+    # bigram frequency
+    freq.trigram <- sort(table(trigram), decreasing = TRUE)
+    freq.trigram <- as.data.frame(freq.trigram)
+    freq.trigram$name <- rownames(freq.trigram)
+    freq.trigram
+}
+```
+
+### Preprocess sample files
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# twitter part
+twitter_path = './data/en_US/en_US.twitter_sample.txt'
+twitter_before <- load_text(twitter_path)
+substr(twitter_before, 100, 1000)
+twitter_after <- clean_text(twitter_before)
+substr(twitter_after, 100, 1000)
+
+# news part
+news_path <- './data/en_US/en_US.news_sample.txt'
+news_before <- load_text(news_path)
+substr(news_before, 100, 1000)
+news_after <- clean_text(news_before)
+substr(news_after, 100, 1000)
+
+# blog part
+blog_path <- './data/en_US/en_US.blog_sample.txt'
+blog_before <- load_text(blog_path)
+substr(blog_before, 100, 1000)
+blog_after <- clean_text(blog_before)
+substr(blog_after, 100, 1000)
+```
+
+### Ngram counts
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# twitter part
+twitter_unigram <- unigram_count(twitter_after)
+head(twitter_unigram, 20)
+twitter_bigram <- bigram_count(twitter_after)
+head(twitter_bigram, 20)
+twitter_trigram <- trigram_count(twitter_after)
+head(twitter_trigram, 20)
+
+# news part
+news_unigram <- unigram_count(news_after)
+head(news_unigram, 20)
+news_bigram <- bigram_count(news_after)
+head(news_bigram, 20)
+news_trigram <- trigram_count(news_after)
+head(news_trigram, 20)
+
+# blog part
+blog_unigram <- unigram_count(blog_after)
+head(blog_unigram, 20)
+blog_bigram <- bigram_count(blog_after)
+head(blog_bigram, 20)
+blog_trigram <- trigram_count(blog_after)
+head(blog_trigram, 20)
+```
+
+## Corpus exploring
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+library(ggplot2)
+# twitter ngrams plotting
+ggplot(twitter_unigram[1:20,], aes(x = name, y = freq.unigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Unigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+ggplot(twitter_bigram[1:20,], aes(x = name, y = freq.bigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Bigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+ggplot(twitter_trigram[1:20,], aes(x = name, y = freq.trigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Trigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+
+# news ngrams plotting
+ggplot(news_unigram[1:20,], aes(x = name, y = freq.unigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Unigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+ggplot(news_bigram[1:20,], aes(x = name, y = freq.bigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Bigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+ggplot(news_trigram[1:20,], aes(x = name, y = freq.trigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Trigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+
+# blog ngrams plotting
+ggplot(blog_unigram[1:20,], aes(x = name, y = freq.unigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Unigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+ggplot(blog_bigram[1:20,], aes(x = name, y = freq.bigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Bigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+ggplot(blog_trigram[1:20,], aes(x = name, y = freq.trigram)) + 
+    geom_bar(stat = "identity") + 
+    ggtitle("Top 20 Trigram Frequency") +
+    theme(axis.text.x = element_text(angle = 45))
+```
+
+### What are the frequencies of unigram, bigrams and trigrams in the dataset?
+- The unigram plotting shows stopwords have the highest frequency.
+- Frequecies decrease on average when the number of grams grow up. It makes sense.
+
+## How many unique words to cover 50% or 90% of all word instances in the language?
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# remove '.'
+twitter_instance <- twitter_unigram[-1,]$freq.unigram
+# function to count the instance coverage
+unique_cover <- function(instance, percent) {
+    instance_count <- 0
+    for (index in 1 : length(instance)) {
+        instance_count <- instance_count + instance[index]
+        if (instance_count / sum(instance) >= percent) {
+            print(index)
+            break
+        }
+    }
+}
+
+unique_cover(twitter_instance, 0.5)
+unique_cover(twitter_instance, 0.9)
+```
+
+## Detect foreign lanagues
+
+```{r}
+library("textcat")
+con <- file(twitter_path, 'r')
+twitter_text <- readLines(con)
+close(con)
+twitter_lan <- lapply(twitter_text, textcat)
+table((twitter_lan == 'english'))
+cbind(twitter_text[1:10], twitter_lan[1:10])
+
+```
+
+I use 'textcat' package to detect the foreign languages. The results are not good. Apparently many sentences sentences are intepreted as non-english. Unicodes and langauge dictionalry could be combined to detect the lanaguages. Unicodes would work on word symbols, and dictionary on shared alphabetics.
+
+## How to increase the coverage -- identifying words that may not be in the corpora or using a smaller number of words in the dictionary to cover the same number of phrases?
+
+-- Build sysnonym dictionary to reduce the unique words volumn, less words represnet more instances.
+-- Use ngram prediction to cover extra words not shown in the highest unique words
+
+## Future plan
+
+- How can you efficiently store an n-gram model (think Markov Chains)?
+
+Unigram, bigram, and trigram in dataframe are already stored in the previous work. Based on that, I could calcuate the conditional probalbity by counting the number of instance over given the conditional instances. Following the Markov Chain, I can get the total conditional probability. The word pair with highest probablity is to be the final prediciton
+
+- How can you use the knowledge about word frequencies to make your model smaller and more efficient?
+
+To make the model smaller and efficient, it is necessary to reduce the number of unique word pairs. 
+One way is to use synonym. The other is to  POS to annotate the words, so the number of unique word pairs would reduce as tag pairs.
+
+- How many parameters do you need (i.e. how big is n in your n-gram model)?
+
+I start with 3 parameters. If the performance is not good, I probably increase n.
+
+- Can you think of simple ways to "smooth" the probabilities?
+
+Add-one smoothing is the simplest way. Just add one count to all words including unknown words.
+
+- How do you evaluate whether your model is any good?
+
+Cross validation. Split the dataset into training and validation sets, and use the validation sets to evaluate the model performance.
+
+- How can you use backoff models to estimate the probability of unobserved n-grams?
+
+If there is no prediction for the n-grams, we go back to n-1 grams. So does for the n-1 grams. Here if trigrams prediciton produces nothing, we have bigram to take over, and then unigram.
+
+- Plan for Shiny App
+
+Since this project is for the typing prediction, the Shiny App should work as receiving text input and outputing next word prediction. The fancy way would be dynamic like what we are typing on iphone, and the prediction pops up instantly.
