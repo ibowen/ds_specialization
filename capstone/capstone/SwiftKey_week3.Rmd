@@ -1,0 +1,374 @@
+---
+title: "SwiftKey_week3"
+author: "Bowen Liu"
+date: "June 12, 2016"
+output: html_document
+---
+
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+library(tm)
+Sys.setenv(JAVA_HOME="")
+options(java.parameters="-Xmx6g")
+library(RWeka)
+library(parallel)
+library(dplyr)
+options(mc.cores = 1)
+```
+
+### Split datasets into train, validation, and test data
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+set.seed(10000)
+# training for 30%, validation for 10%, test for 10%
+train_percentage = 0.7
+vali_percentage = 0.15
+test_percentage = 0.15
+
+for (file in c('twitter', 'blogs', 'news')) {
+	lines <- readLines(sprintf('./data/en_US/en_US.%s.txt', file), skipNul = T, encoding = 'UTF-8')
+	len <- length(lines)
+	
+	# 1. train data
+	train_size <- train_percentage * len
+	train_index <- sample(1:length(lines), train_size)
+	train_lines <- lines[train_index]
+	saveRDS(train_lines, file = sprintf('./data/en_US/train/en_US.%s_train.rds', file))
+	# 2. validation data
+	lines <- lines[-train_index]
+	vali_size <- vali_percentage * len
+	vali_index <- sample(1:length(lines), vali_size)
+	vali_lines <- lines[vali_index]
+	saveRDS(vali_lines, file = sprintf('./data/en_US/vali/en_US.%s_vali.rds', file))
+	# 3. test data
+    lines <- lines[-vali_index]
+	test_size <- test_percentage * len
+	test_index <- sample(1:length(lines), test_size)
+	test_lines <- lines[test_index]
+	saveRDS(test_lines, file = sprintf('./data/en_US/test/en_US.%s_test.rds', file))
+}
+```
+
+### Define functions
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# function to tranform one line list into document term frequency
+clean_corpus <- function(corpus) {
+    # to lower case
+    corpus <- tm_map(corpus, content_transformer(tolower))
+    # remove punctuation
+    corpus <- tm_map(corpus, removePunctuation)
+    # remove numbers
+    corpus <- tm_map(corpus, removeNumbers)
+    # strip whitespace among words
+    corpus <- tm_map(corpus, stripWhitespace)
+    corpus
+}
+
+```
+
+### Train data preprocessing, transform text into freq dataframe
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# transform train text into corpus
+corpus.train <- VCorpus(DirSource(directory="./data/en_US/train", encoding="UTF-8"), readerControl=list(language="en"))
+
+# clean corpus
+corpus.train <- clean_corpus(corpus.train)
+
+# transform corpus into tdm
+tokenizer.1g <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
+tokenizer.2g <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+tokenizer.3g <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+tokenizer.4g <- function(x) NGramTokenizer(x, Weka_control(min = 4, max = 4))
+
+# Sets the default number of threads to use
+options(mc.cores=1)
+tdm.train.1g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.1g, wordLengths = c(1, Inf)))
+tdm.train.2g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.2g))
+tdm.train.3g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.3g))
+tdm.train.4g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.4g))
+
+tdm.train.1g
+tdm.train.2g
+tdm.train.3g
+tdm.train.4g
+
+# save tdf
+saveRDS(tdm.train.1g, file = './data/en_US/tdm/train.1g.tdm')
+saveRDS(tdm.train.2g, file = './data/en_US/tdm/train.2g.tdm')
+saveRDS(tdm.train.3g, file = './data/en_US/tdm/train.3g.tdm')
+saveRDS(tdm.train.4g, file = './data/en_US/tdm/train.4g.tdm')
+
+inspect(tdm.train.1g[1:20, 1:3])
+inspect(tdm.train.2g[1:20, 1:3])
+inspect(tdm.train.3g[1:20, 1:3])
+inspect(tdm.train.4g[1:20, 1:3])
+
+```
+
+### calculate conditional probalibity based on tdm
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# functions to get priors and posterior
+get_1of2 <- function(bigram) {
+    bigram <- as.character(bigram)
+    unlist(strsplit(bigram, ' '))[1]
+}
+
+get_12of3 <- function(trigram) {
+    trigram <- as.character(trigram)
+    split_words <- unlist(strsplit(trigram, ' '))
+    paste(split_words[1], split_words[2], sep=' ')
+}
+
+get_123of4 <- function(quargram) {
+    quargram <- as.character(quargram)
+    words <- unlist(strsplit(quargram, ' '))
+    paste(words[1], words[2], words[3], sep=' ')
+}
+
+get_posterior <- function(ngram) {
+    ngram <- as.character(ngram)
+    words = unlist(strsplit(ngram, ' '))
+    words[length(words)]
+}
+```
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# unigram part
+tdm.train.1g <- as.matrix(tdm.train.1g)
+tdm.train.1g <- rowSums(tdm.train.1g)
+tdm.train.1g <- sort(tdm.train.1g, decreasing = TRUE)
+head(tdm.train.1g)
+
+# total word occurance
+freq.sum.1g <- sum(tdm.train.1g)
+# total unique words
+term.sum.1g <- length(tdm.train.1g)
+
+# bigram part
+tdm.train.2g <- as.matrix(tdm.train.2g)
+tdm.train.2g <- rowSums(tdm.train.2g)
+tdm.train.2g <- sort(tdm.train.2g, decreasing = TRUE)
+df.train.2g <- data.frame(term = names(tdm.train.2g), freq.term = tdm.train.2g)
+df.train.2g$prior <- sapply(df.train.2g$term, get_1of2)
+df.train.2g$posterior <- sapply(df.train.2g$term, get_posterior)
+head(df.train.2g)
+# total bigram occurence
+freq.sum.2g <- sum(tdm.train.2g)
+# total unique bigrams
+term.sum.2g <- length(tdm.train.2g)
+
+# trigram part
+tdm.train.3g <- as.matrix(tdm.train.3g)
+tdm.train.3g <- rowSums(tdm.train.3g)
+tdm.train.3g <- sort(tdm.train.3g, decreasing = TRUE)
+df.train.3g <- data.frame(term = names(tdm.train.3g), freq.term = tdm.train.3g)
+df.train.3g$prior <- sapply(df.train.3g$term, get_12of3)
+df.train.3g$posterior <- sapply(df.train.3g$term, get_posterior)
+head(df.train.3g)
+# total trigram occurence
+freq.sum.3g <- sum(tdm.train.3g)
+# total unique trigrams
+term.sum.3g <- length(tdm.train.3g)
+
+# quargram part
+tdm.train.4g <- as.matrix(tdm.train.4g)
+tdm.train.4g <- rowSums(tdm.train.4g)
+tdm.train.4g <- sort(tdm.train.4g, decreasing = TRUE)
+df.train.4g <- data.frame(term = names(tdm.train.4g), freq.term = tdm.train.4g)
+df.train.4g$prior <- sapply(df.train.4g$term, get_123of4)
+df.train.4g$posterior <- sapply(df.train.4g$term, get_posterior)
+head(df.train.4g)
+# total quargram occurence
+freq.sum.4g <- sum(tdm.train.4g)
+# total unique trigrams
+term.sum.4g <- length(tdm.train.4g)
+
+# build ngram statistics for modeling and prediction
+ngram.stat <- rbind(c(term.sum.1g, term.sum.2g, term.sum.3g, term.sum.4g), c(freq.sum.1g, freq.sum.2g, freq.sum.3g, freq.sum.4g))
+rownames(ngram.stat) <- c('term.sum', 'freq.sum')
+colnames(ngram.stat) <- c('1g', '2g', '3g', '4g')
+ngram.stat
+
+gc()
+```
+
+### Preprocess validation set
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# transform train text into corpus
+corpus.vali <- VCorpus(DirSource(directory="./data/en_US/vali", encoding="UTF-8"), readerControl=list(language="en"))
+
+# clean corpus
+corpus.train <- clean_corpus(corpus.vali)
+
+tdm.vali.1g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.1g, wordLengths = c(1, Inf)))
+tdm.vali.2g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.2g))
+tdm.vali.3g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.3g))
+tdm.vali.4g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.4g))
+
+# save tdf
+saveRDS(tdm.vali.1g, file = './data/en_US/tdm/vali.1g.tdm')
+saveRDS(tdm.vali.2g, file = './data/en_US/tdm/vali.2g.tdm')
+saveRDS(tdm.vali.3g, file = './data/en_US/tdm/vali.3g.tdm')
+saveRDS(tdm.vali.4g, file = './data/en_US/tdm/vali.4g.tdm')
+
+# bigram part
+tdm.vali.2g <- as.matrix(tdm.vali.2g)
+tdm.vali.2g <- rowSums(tdm.vali.2g)
+tdm.vali.2g <- sort(tdm.vali.2g, decreasing = TRUE)
+head(tdm.vali.2g)
+
+df.vali.2g <- data.frame(term = names(tdm.vali.2g))
+df.vali.2g$prior <- sapply(df.vali.2g$term, get_1of2)
+df.vali.2g$posterior <- sapply(df.vali.2g$term, get_posterior)
+head(df.vali.2g)
+
+# trigram part
+tdm.vali.3g <- as.matrix(tdm.vali.3g)
+tdm.vali.3g <- rowSums(tdm.vali.3g)
+tdm.vali.3g <- sort(tdm.vali.3g, decreasing = TRUE)
+head(tdm.vali.3g)
+
+df.vali.3g <- data.frame(term = names(tdm.vali.3g))
+df.vali.3g$prior <- sapply(df.vali.3g$term, get_12of3)
+df.vali.3g$posterior <- sapply(df.vali.3g$term, get_posterior)
+head(df.vali.3g)
+
+# quargram part
+tdm.vali.4g <- as.matrix(tdm.vali.4g)
+tdm.vali.4g <- rowSums(tdm.vali.4g)
+tdm.vali.4g <- sort(tdm.vali.4g, decreasing = TRUE)
+head(tdm.vali.4g)
+
+df.vali.4g <- data.frame(term = names(tdm.vali.4g))
+df.vali.4g$prior <- sapply(df.vali.4g$term, get_123of4)
+df.vali.4g$posterior <- sapply(df.vali.4g$term, get_posterior)
+head(df.vali.4g)
+```
+
+### Validate the performance of models
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# function to predict the next word
+pred.2g <- function(predictor) {
+    pred <- arrange(filter(df.train.2g, prior == predictor), desc(freq.term))[1:3, 'posterior']
+    paste(pred, collapse = ' ')
+}
+
+pred.3g <- function(predictor) {
+    pred <- arrange(filter(df.train.3g, prior == predictor), desc(freq.term))[1:3, 'posterior']
+    paste(pred, collapse = ' ')
+}
+
+pred.4g <- function(predictor) {
+    pred <- arrange(filter(df.train.4g, prior == predictor), desc(freq.term))[1:3, 'posterior']
+    paste(pred, collapse = ' ')
+}
+
+# backoff
+pred.backoff <- function(predictor) {
+    pred <- pred.4g(predictor)
+    if (sum(is.na(pred))==0) {
+        predictor <- paste(unlist(strsplit(predictor, ' '))[2:3], collapse = ' ')
+        pred <- pred.3g(predictor)
+    }
+    if (sum(is.na(pred))==0) {
+        predictor <- unlist(strsplit(predictor, ' '))[2]
+        pred <- pred.2g(predictor)
+    }
+    if (sum(is.na(pred))==0) {
+        pred <- paste(c('the', 'to', 'and'), collapse = ' ')
+    }
+    pred
+}
+
+# bigram prediction
+ptm <- proc.time()
+df.vali.2g$pred <- mclapply(df.vali.2g$prior, FUN = pred.2g, mc.cores = 6L)
+df.vali.2g$pred <- sapply(df.vali.2g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#    user  system elapsed 
+# 148.408   7.292  26.919 
+head(df.vali.2g)
+# bigram accuracy: 0.7483637
+nrow(df.vali.2g[df.vali.2g$posterior %in% unlist(strsplit(df.vali.2g$pred, ' ')), ]) / nrow(df.vali.2g)
+
+# trigram prediction
+ptm <- proc.time()
+df.vali.3g$pred <- mclapply(df.vali.3g$prior, FUN = pred.3g, mc.cores = 6L)
+df.vali.3g$pred <- sapply(df.vali.3g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#   user  system elapsed 
+# 142.218   6.026  41.959
+
+head(df.vali.3g)
+# trigram accuracy: 0.9237841
+nrow(df.vali.3g[df.vali.3g$posterior %in% unlist(strsplit(df.vali.3g$pred, ' ')), ]) / nrow(df.vali.3g)
+
+# quargram prediction
+ptm <- proc.time()
+df.vali.4g$pred <- mclapply(df.vali.4g$prior, FUN = pred.4g, mc.cores = 6L)
+df.vali.4g$pred <- sapply(df.vali.4g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#    user  system elapsed 
+# 203.257   7.926  43.591
+
+head(df.vali.4g)
+# quargram accuracy: 0.9429071
+nrow(df.vali.4g[df.vali.4g$posterior %in% unlist(strsplit(df.vali.4g$pred, ' ')), ]) / nrow(df.vali.4g)
+
+
+# backoff prediction
+ptm <- proc.time()
+df.vali.4g$pred.backoff <- mclapply(df.vali.4g$prior, FUN = pred.backoff, mc.cores = 6L)
+df.vali.4g$pred.backoff <- sapply(df.vali.4g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#   user  system elapsed 
+# 509.773  15.037 124.054 
+
+head(df.vali.4g)
+# backoff accuracy: 0.9429071
+nrow(df.vali.4g[df.vali.4g$posterior %in% unlist(strsplit(df.vali.4g$pred.backoff, ' ')), ]) / nrow(df.vali.4g)
+
+```
+
+```{r}
+# Questions to consider:
+# 1. How does the model perform for different choices of the parameters and size of the model?
+# The model performs slower as the number of parameters and size of the model increase.
+
+# 2. How much does the model slow down for the performance you gain?
+# The elasped time incease from 26.919s to 43.591s as from bigram to quargram
+
+# 3. Does perplexity correlate with the other measures of accuracy?
+# not use perplexity at all.
+
+# 4. Can you reduce the size of the model (number of parameters) without reducing performance?
+# Trigram is far better than bigram and only slightly lower than quargram in my validation set.
+
+```
+
+### Quiz 2
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+quiz <- c('The guy in front of me just bought a pound of bacon, a bouquet, and a case of', 'Youre the reason why I smile everyday. Can you follow me please? It would mean the', 'Hey sunshine, can you follow me and make me the', 'Very early observations on the Bills game: Offense still struggling but the', 'Go on a romantic date at the', "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my", "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little", "Be grateful for the good times and keep the faith during the", "If this isn't the cutest thing you've ever seen, then you must be")
+quiz <- data.frame(quiz)
+str(quiz)
+
+get_prior3 <- function(text) {
+    text <- as.character(text)
+    words = unlist(strsplit(text, ' '))
+    len <- length(words)
+    paste(words[(len-3):(len-1)], collapse = ' ')
+}
+
+quiz$prior3 <- sapply(quiz$quiz, get_prior3)
+
+quiz$pred <- sapply(quiz$prior3, pred.4g)
+
+quiz[, c('prior3', 'pred')]
+```
+
+
