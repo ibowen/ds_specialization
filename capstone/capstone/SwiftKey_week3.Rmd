@@ -54,10 +54,18 @@ for (file in c('twitter', 'blogs', 'news')) {
 ```{r,cache=FALSE, warning=FALSE, message=FALSE}
 # function to tranform one line list into document term frequency
 clean_corpus <- function(corpus) {
+    # remove non-ascill
+    corpus <- tm_map(corpus, content_transformer(function(x) iconv(x, "latin1", "ASCII", sub="")))
     # to lower case
+    # no applicable method for 'content' applied to an object of class "character"
+    # change tolower into content_transformer(tolower)
     corpus <- tm_map(corpus, content_transformer(tolower))
-    # remove punctuation
-    corpus <- tm_map(corpus, removePunctuation)
+    # remove profanity words
+    # http://www.cs.cmu.edu/~biglou/resources/bad-words.txt
+    profanity <- readLines('./data/en_US/profanity.txt')
+    corpus <- tm_map(corpus, removeWords, profanity)
+    # remove non-alphanumeric signs, space or apostrophe but keep
+    corpus <- tm_map(corpus, content_transformer(function(x) gsub("[^[:alnum:][:space:]']", "", x, perl = TRUE)))
     # remove numbers
     corpus <- tm_map(corpus, removeNumbers)
     # strip whitespace among words
@@ -74,36 +82,28 @@ clean_corpus <- function(corpus) {
 corpus.train <- VCorpus(DirSource(directory="./data/en_US/train", encoding="UTF-8"), readerControl=list(language="en"))
 
 # clean corpus
+
 corpus.train <- clean_corpus(corpus.train)
 
 # transform corpus into tdm
-tokenizer.1g <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
-tokenizer.2g <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
-tokenizer.3g <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
-tokenizer.4g <- function(x) NGramTokenizer(x, Weka_control(min = 4, max = 4))
+tokenizer.1g <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1, delimiters = ' '))
+tokenizer.2g <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2, delimiters = ' '))
+tokenizer.3g <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3, delimiters = ' '))
+tokenizer.4g <- function(x) NGramTokenizer(x, Weka_control(min = 4, max = 4, delimiters = ' '))
 
 # Sets the default number of threads to use
 options(mc.cores=1)
-tdm.train.1g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.1g, wordLengths = c(1, Inf)))
+tdm.train.1g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.1g))
 tdm.train.2g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.2g))
 tdm.train.3g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.3g))
 tdm.train.4g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.4g))
 
-tdm.train.1g
-tdm.train.2g
-tdm.train.3g
-tdm.train.4g
-
+inspect(tdm.train.2g[1:10, 1:3])
 # save tdf
 saveRDS(tdm.train.1g, file = './data/en_US/tdm/train.1g.tdm')
 saveRDS(tdm.train.2g, file = './data/en_US/tdm/train.2g.tdm')
 saveRDS(tdm.train.3g, file = './data/en_US/tdm/train.3g.tdm')
 saveRDS(tdm.train.4g, file = './data/en_US/tdm/train.4g.tdm')
-
-inspect(tdm.train.1g[1:20, 1:3])
-inspect(tdm.train.2g[1:20, 1:3])
-inspect(tdm.train.3g[1:20, 1:3])
-inspect(tdm.train.4g[1:20, 1:3])
 
 ```
 
@@ -140,12 +140,10 @@ get_posterior <- function(ngram) {
 tdm.train.1g <- as.matrix(tdm.train.1g)
 tdm.train.1g <- rowSums(tdm.train.1g)
 tdm.train.1g <- sort(tdm.train.1g, decreasing = TRUE)
-head(tdm.train.1g)
-
-# total word occurance
-freq.sum.1g <- sum(tdm.train.1g)
-# total unique words
-term.sum.1g <- length(tdm.train.1g)
+df.train.1g <- data.frame(term = names(tdm.train.1g), freq.term = tdm.train.1g)
+df.train.1g$prior.vol <- nrow(df.train.1g)
+head(df.train.1g)
+saveRDS(df.train.1g, file = './data/en_US/df/train.1g.df')
 
 # bigram part
 tdm.train.2g <- as.matrix(tdm.train.2g)
@@ -153,12 +151,22 @@ tdm.train.2g <- rowSums(tdm.train.2g)
 tdm.train.2g <- sort(tdm.train.2g, decreasing = TRUE)
 df.train.2g <- data.frame(term = names(tdm.train.2g), freq.term = tdm.train.2g)
 df.train.2g$prior <- sapply(df.train.2g$term, get_1of2)
+# summarize the prior
+by_prior.2g <- group_by(df.train.2g, prior)
+sum.prior.2g <- as.data.frame(summarise(by_prior.2g, sum(freq.term)))
+rownames(sum.prior.2g) <- sum.prior.2g$prior
+sum.prior.2g$prior <- NULL
+# total unique prior
+df.train.2g$prior.vol <- nrow(sum.prior.2g)
+
+# add prior frequence
+df.train.2g$freq.prior <- mclapply(df.train.2g$prior, FUN = function(x) sum.prior.2g[x,], mc.cores = 6L)
+df.train.2g$freq.prior <- sapply(df.train.2g$freq.prior, FUN = as.vector)
+# add posterior from term
 df.train.2g$posterior <- sapply(df.train.2g$term, get_posterior)
+
 head(df.train.2g)
-# total bigram occurence
-freq.sum.2g <- sum(tdm.train.2g)
-# total unique bigrams
-term.sum.2g <- length(tdm.train.2g)
+saveRDS(df.train.2g, file = './data/en_US/df/train.2g.df')
 
 # trigram part
 tdm.train.3g <- as.matrix(tdm.train.3g)
@@ -166,12 +174,21 @@ tdm.train.3g <- rowSums(tdm.train.3g)
 tdm.train.3g <- sort(tdm.train.3g, decreasing = TRUE)
 df.train.3g <- data.frame(term = names(tdm.train.3g), freq.term = tdm.train.3g)
 df.train.3g$prior <- sapply(df.train.3g$term, get_12of3)
+# summarize the prior
+by_prior.3g <- group_by(df.train.3g, prior)
+sum.prior.3g <- as.data.frame(summarise(by_prior.3g, sum(freq.term)))
+rownames(sum.prior.3g) <- sum.prior.3g$prior
+sum.prior.3g$prior <- NULL
+# total unique prior
+df.train.3g$prior.vol <- nrow(sum.prior.3g)
+
+# add prior frequence
+df.train.3g$freq.prior <- mclapply(df.train.3g$prior, FUN = function(x) sum.prior.3g[x,], mc.cores = 6L)
+df.train.3g$freq.prior <- sapply(df.train.3g$freq.prior, FUN = as.vector)
+# add posterior from term
 df.train.3g$posterior <- sapply(df.train.3g$term, get_posterior)
 head(df.train.3g)
-# total trigram occurence
-freq.sum.3g <- sum(tdm.train.3g)
-# total unique trigrams
-term.sum.3g <- length(tdm.train.3g)
+saveRDS(df.train.3g, file = './data/en_US/df/train.3g.df')
 
 # quargram part
 tdm.train.4g <- as.matrix(tdm.train.4g)
@@ -179,18 +196,28 @@ tdm.train.4g <- rowSums(tdm.train.4g)
 tdm.train.4g <- sort(tdm.train.4g, decreasing = TRUE)
 df.train.4g <- data.frame(term = names(tdm.train.4g), freq.term = tdm.train.4g)
 df.train.4g$prior <- sapply(df.train.4g$term, get_123of4)
+# summarize the prior
+by_prior.4g <- group_by(df.train.4g, prior)
+sum.prior.4g <- as.data.frame(summarise(by_prior.4g, sum(freq.term)))
+rownames(sum.prior.4g) <- sum.prior.4g$prior
+sum.prior.4g$prior <- NULL
+# total unique prior
+df.train.4g$prior.vol <- nrow(sum.prior.4g)
+
+# add prior frequence
+ptm <- proc.time()
+df.train.4g$freq.prior <- mclapply(df.train.4g$prior, FUN = function(x) sum.prior.4g[x,], mc.cores = 6L)
+print(proc.time() - ptm)
+df.train.4g$freq.prior <- sapply(df.train.4g$freq.prior, FUN = as.vector)
+# add posterior from term
 df.train.4g$posterior <- sapply(df.train.4g$term, get_posterior)
 head(df.train.4g)
-# total quargram occurence
-freq.sum.4g <- sum(tdm.train.4g)
-# total unique trigrams
-term.sum.4g <- length(tdm.train.4g)
+saveRDS(df.train.4g, file = './data/en_US/df/train.4g.df')
 
-# build ngram statistics for modeling and prediction
-ngram.stat <- rbind(c(term.sum.1g, term.sum.2g, term.sum.3g, term.sum.4g), c(freq.sum.1g, freq.sum.2g, freq.sum.3g, freq.sum.4g))
-rownames(ngram.stat) <- c('term.sum', 'freq.sum')
-colnames(ngram.stat) <- c('1g', '2g', '3g', '4g')
-ngram.stat
+# statistics for prior volcabulary for each gram
+prior.stat <- data.frame(cbind(df.train.1g$prior.vol[1], df.train.2g$prior.vol[1], df.train.3g$prior.vol[1], df.train.4g$prior.vol[1]), row.names = 'row.vol')
+colnames(prior.stat) <- c('1g', '2g', '3g', '4g')
+prior.stat
 
 gc()
 ```
@@ -204,7 +231,7 @@ corpus.vali <- VCorpus(DirSource(directory="./data/en_US/vali", encoding="UTF-8"
 # clean corpus
 corpus.train <- clean_corpus(corpus.vali)
 
-tdm.vali.1g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.1g, wordLengths = c(1, Inf)))
+tdm.vali.1g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.1g))
 tdm.vali.2g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.2g))
 tdm.vali.3g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.3g))
 tdm.vali.4g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.4g))
@@ -247,6 +274,7 @@ df.vali.4g <- data.frame(term = names(tdm.vali.4g))
 df.vali.4g$prior <- sapply(df.vali.4g$term, get_123of4)
 df.vali.4g$posterior <- sapply(df.vali.4g$term, get_posterior)
 head(df.vali.4g)
+
 ```
 
 ### Validate the performance of models
@@ -361,14 +389,32 @@ get_prior3 <- function(text) {
     text <- as.character(text)
     words = unlist(strsplit(text, ' '))
     len <- length(words)
-    paste(words[(len-3):(len-1)], collapse = ' ')
+    paste(words[(len-2):len], collapse = ' ')
+}
+
+get_prior2 <- function(text) {
+    text <- as.character(text)
+    words = unlist(strsplit(text, ' '))
+    len <- length(words)
+    paste(words[(len-1):len], collapse = ' ')
+}
+
+get_prior1 <- function(text) {
+    text <- as.character(text)
+    words = unlist(strsplit(text, ' '))
+    len <- length(words)
+    words[len]
 }
 
 quiz$prior3 <- sapply(quiz$quiz, get_prior3)
+quiz$prior2 <- sapply(quiz$quiz, get_prior2)
+quiz$prior1 <- sapply(quiz$quiz, get_prior1)
 
-quiz$pred <- sapply(quiz$prior3, pred.4g)
+quiz$pred.3g <- sapply(quiz$prior3, pred.4g)
+quiz$pred.2g <- sapply(quiz$prior2, pred.3g)
+quiz$pred.1g <- sapply(quiz$prior1, pred.2g)
 
-quiz[, c('prior3', 'pred')]
+quiz[, 2:7]
 ```
 
 
