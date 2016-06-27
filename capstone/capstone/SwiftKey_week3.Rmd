@@ -3,6 +3,7 @@ title: "SwiftKey_week3"
 author: "Bowen Liu"
 date: "June 12, 2016"
 output: html_document
+Description: "combine three corpus together"
 ---
 
 
@@ -11,6 +12,7 @@ library(tm)
 Sys.setenv(JAVA_HOME="")
 options(java.parameters="-Xmx6g")
 library(RWeka)
+library(SnowballC)
 library(parallel)
 library(dplyr)
 options(mc.cores = 1)
@@ -70,6 +72,8 @@ clean_corpus <- function(corpus) {
     corpus <- tm_map(corpus, removeNumbers)
     # strip whitespace among words
     corpus <- tm_map(corpus, stripWhitespace)
+    # stem words
+    corpus <- tm_map(corpus, stemDocument)
     corpus
 }
 
@@ -92,7 +96,6 @@ tokenizer.3g <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3, del
 tokenizer.4g <- function(x) NGramTokenizer(x, Weka_control(min = 4, max = 4, delimiters = ' '))
 
 # Sets the default number of threads to use
-options(mc.cores=1)
 tdm.train.1g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.1g))
 tdm.train.2g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.2g))
 tdm.train.3g <- TermDocumentMatrix(corpus.train, control = list(tokenize = tokenizer.3g))
@@ -142,6 +145,8 @@ tdm.train.1g <- rowSums(tdm.train.1g)
 tdm.train.1g <- sort(tdm.train.1g, decreasing = TRUE)
 df.train.1g <- data.frame(term = names(tdm.train.1g), freq.term = tdm.train.1g)
 df.train.1g$prior.vol <- nrow(df.train.1g)
+# laplace smoothing
+df.train.1g$proba <- log((df.train.1g$freq.term + 1) / (df.train.1g$prior.vol + nrow(df.train.1g)))
 head(df.train.1g)
 saveRDS(df.train.1g, file = './data/en_US/df/train.1g.df')
 
@@ -164,6 +169,8 @@ df.train.2g$freq.prior <- mclapply(df.train.2g$prior, FUN = function(x) sum.prio
 df.train.2g$freq.prior <- sapply(df.train.2g$freq.prior, FUN = as.vector)
 # add posterior from term
 df.train.2g$posterior <- sapply(df.train.2g$term, get_posterior)
+# laplace smoothing
+df.train.2g$proba <- log((df.train.2g$freq.term + 1) / (df.train.2g$prior.vol + nrow(df.train.2g)))
 
 head(df.train.2g)
 saveRDS(df.train.2g, file = './data/en_US/df/train.2g.df')
@@ -187,6 +194,8 @@ df.train.3g$freq.prior <- mclapply(df.train.3g$prior, FUN = function(x) sum.prio
 df.train.3g$freq.prior <- sapply(df.train.3g$freq.prior, FUN = as.vector)
 # add posterior from term
 df.train.3g$posterior <- sapply(df.train.3g$term, get_posterior)
+# laplace smoothing
+df.train.3g$proba <- log((df.train.3g$freq.term + 1) / (df.train.3g$prior.vol + nrow(df.train.3g)))
 head(df.train.3g)
 saveRDS(df.train.3g, file = './data/en_US/df/train.3g.df')
 
@@ -211,6 +220,8 @@ print(proc.time() - ptm)
 df.train.4g$freq.prior <- sapply(df.train.4g$freq.prior, FUN = as.vector)
 # add posterior from term
 df.train.4g$posterior <- sapply(df.train.4g$term, get_posterior)
+# laplace smoothing
+df.train.4g$proba <- log((df.train.4g$freq.term + 1) / (df.train.4g$prior.vol + nrow(df.train.4g)))
 head(df.train.4g)
 saveRDS(df.train.4g, file = './data/en_US/df/train.4g.df')
 
@@ -229,7 +240,7 @@ gc()
 corpus.vali <- VCorpus(DirSource(directory="./data/en_US/vali", encoding="UTF-8"), readerControl=list(language="en"))
 
 # clean corpus
-corpus.train <- clean_corpus(corpus.vali)
+corpus.vali <- clean_corpus(corpus.vali)
 
 tdm.vali.1g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.1g))
 tdm.vali.2g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.2g))
@@ -242,6 +253,12 @@ saveRDS(tdm.vali.2g, file = './data/en_US/tdm/vali.2g.tdm')
 saveRDS(tdm.vali.3g, file = './data/en_US/tdm/vali.3g.tdm')
 saveRDS(tdm.vali.4g, file = './data/en_US/tdm/vali.4g.tdm')
 
+# load tdf
+tdm.vali.1g  <- readRDS(file = './data/en_US/tdm/vali.1g.tdm')
+tdm.vali.2g  <- readRDS(file = './data/en_US/tdm/vali.2g.tdm')
+tdm.vali.3g  <- readRDS(file = './data/en_US/tdm/vali.3g.tdm')
+tdm.vali.4g  <- readRDS(file = './data/en_US/tdm/vali.4g.tdm')
+
 # bigram part
 tdm.vali.2g <- as.matrix(tdm.vali.2g)
 tdm.vali.2g <- rowSums(tdm.vali.2g)
@@ -252,6 +269,7 @@ df.vali.2g <- data.frame(term = names(tdm.vali.2g))
 df.vali.2g$prior <- sapply(df.vali.2g$term, get_1of2)
 df.vali.2g$posterior <- sapply(df.vali.2g$term, get_posterior)
 head(df.vali.2g)
+saveRDS(df.vali.2g, file = './data/en_US/df/vali.2g.df')
 
 # trigram part
 tdm.vali.3g <- as.matrix(tdm.vali.3g)
@@ -263,6 +281,7 @@ df.vali.3g <- data.frame(term = names(tdm.vali.3g))
 df.vali.3g$prior <- sapply(df.vali.3g$term, get_12of3)
 df.vali.3g$posterior <- sapply(df.vali.3g$term, get_posterior)
 head(df.vali.3g)
+saveRDS(df.vali.3g, file = './data/en_US/df/vali.3g.df')
 
 # quargram part
 tdm.vali.4g <- as.matrix(tdm.vali.4g)
@@ -274,6 +293,7 @@ df.vali.4g <- data.frame(term = names(tdm.vali.4g))
 df.vali.4g$prior <- sapply(df.vali.4g$term, get_123of4)
 df.vali.4g$posterior <- sapply(df.vali.4g$term, get_posterior)
 head(df.vali.4g)
+saveRDS(df.vali.4g, file = './data/en_US/df/vali.4g.df')
 
 ```
 
@@ -283,45 +303,65 @@ head(df.vali.4g)
 # function to predict the next word
 pred.2g <- function(predictor) {
     pred <- arrange(filter(df.train.2g, prior == predictor), desc(freq.term))[1:3, 'posterior']
+    pred <- pred[!is.na(pred)]
     paste(pred, collapse = ' ')
 }
 
 pred.3g <- function(predictor) {
     pred <- arrange(filter(df.train.3g, prior == predictor), desc(freq.term))[1:3, 'posterior']
+    pred <- pred[!is.na(pred)]
     paste(pred, collapse = ' ')
 }
 
 pred.4g <- function(predictor) {
     pred <- arrange(filter(df.train.4g, prior == predictor), desc(freq.term))[1:3, 'posterior']
+    pred <- pred[!is.na(pred)]
     paste(pred, collapse = ' ')
 }
 
 # backoff
 pred.backoff <- function(predictor) {
-    pred <- pred.4g(predictor)
-    if (sum(is.na(pred))==0) {
-        predictor <- paste(unlist(strsplit(predictor, ' '))[2:3], collapse = ' ')
-        pred <- pred.3g(predictor)
-    }
-    if (sum(is.na(pred))==0) {
-        predictor <- unlist(strsplit(predictor, ' '))[2]
-        pred <- pred.2g(predictor)
-    }
-    if (sum(is.na(pred))==0) {
-        pred <- paste(c('the', 'to', 'and'), collapse = ' ')
-    }
-    pred
+    pred.4 <- unlist(strsplit(pred.4g(predictor), ' '))
+    # back off to 3g
+    predictor <- paste(unlist(strsplit(predictor, ' '))[2:3], collapse = ' ')
+    pred.3 <- unlist(strsplit(pred.3g(predictor), ' '))
+    # back off to 2g
+    predictor <- unlist(strsplit(predictor, ' '))[2]
+    pred.2 <- unlist(strsplit(pred.2g(predictor), ' '))
+    # back off to 1g
+    pred.1 <- c('the', 'to', 'and')
+    
+    # concatenate all preds together
+    
+    pred <- c(pred.4, pred.3, pred.2, pred.1, recursive=TRUE)
+    paste(unique(pred)[1:3], collapse = ' ')
 }
+```
 
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# load train and validation df
+df.train.1g  <- readRDS(file = './data/en_US/df/train.1g.df')
+df.train.2g  <- readRDS(file = './data/en_US/df/train.2g.df')
+df.train.3g  <- readRDS(file = './data/en_US/df/train.3g.df')
+df.train.4g  <- readRDS(file = './data/en_US/df/train.4g.df')
+
+df.vali.2g  <- readRDS(file = './data/en_US/df/vali.2g.df')
+df.vali.3g  <- readRDS(file = './data/en_US/df/vali.3g.df')
+df.vali.4g  <- readRDS(file = './data/en_US/df/vali.4g.df')
+
+```
+
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
 # bigram prediction
 ptm <- proc.time()
 df.vali.2g$pred <- mclapply(df.vali.2g$prior, FUN = pred.2g, mc.cores = 6L)
 df.vali.2g$pred <- sapply(df.vali.2g$pred, FUN = as.vector)
 print(proc.time() - ptm)
 #    user  system elapsed 
-# 148.408   7.292  26.919 
+# 1230.205   32.815  113.220
 head(df.vali.2g)
-# bigram accuracy: 0.7483637
+# bigram accuracy: 0.7124578
 nrow(df.vali.2g[df.vali.2g$posterior %in% unlist(strsplit(df.vali.2g$pred, ' ')), ]) / nrow(df.vali.2g)
 
 # trigram prediction
@@ -330,10 +370,10 @@ df.vali.3g$pred <- mclapply(df.vali.3g$prior, FUN = pred.3g, mc.cores = 6L)
 df.vali.3g$pred <- sapply(df.vali.3g$pred, FUN = as.vector)
 print(proc.time() - ptm)
 #   user  system elapsed 
-# 142.218   6.026  41.959
+# 1149.695   32.076  221.823
 
 head(df.vali.3g)
-# trigram accuracy: 0.9237841
+# trigram accuracy: 0.8469944
 nrow(df.vali.3g[df.vali.3g$posterior %in% unlist(strsplit(df.vali.3g$pred, ' ')), ]) / nrow(df.vali.3g)
 
 # quargram prediction
@@ -342,10 +382,10 @@ df.vali.4g$pred <- mclapply(df.vali.4g$prior, FUN = pred.4g, mc.cores = 6L)
 df.vali.4g$pred <- sapply(df.vali.4g$pred, FUN = as.vector)
 print(proc.time() - ptm)
 #    user  system elapsed 
-# 203.257   7.926  43.591
+# 1348.187   36.471  242.216 
 
 head(df.vali.4g)
-# quargram accuracy: 0.9429071
+# quargram accuracy: 0.7938771
 nrow(df.vali.4g[df.vali.4g$posterior %in% unlist(strsplit(df.vali.4g$pred, ' ')), ]) / nrow(df.vali.4g)
 
 
@@ -355,12 +395,19 @@ df.vali.4g$pred.backoff <- mclapply(df.vali.4g$prior, FUN = pred.backoff, mc.cor
 df.vali.4g$pred.backoff <- sapply(df.vali.4g$pred, FUN = as.vector)
 print(proc.time() - ptm)
 #   user  system elapsed 
-# 509.773  15.037 124.054 
+# 3142.613   80.217  664.474 
 
 head(df.vali.4g)
-# backoff accuracy: 0.9429071
+# backoff accuracy: 0.7938771
+
 nrow(df.vali.4g[df.vali.4g$posterior %in% unlist(strsplit(df.vali.4g$pred.backoff, ' ')), ]) / nrow(df.vali.4g)
 
+test <- df.vali.4g[1:1000,]
+head(test)
+test$pred.backoff <- mclapply(test$prior, FUN = pred.backoff, mc.cores = 6L)
+test$pred.backoff <- sapply(test$pred, FUN = as.vector)
+head(test)
+nrow(test[test$posterior %in% unlist(strsplit(test$pred.backoff, ' ')), ]) / nrow(test)
 ```
 
 ```{r}
@@ -381,11 +428,13 @@ nrow(df.vali.4g[df.vali.4g$posterior %in% unlist(strsplit(df.vali.4g$pred.backof
 
 ### Quiz 2
 ```{r,cache=FALSE, warning=FALSE, message=FALSE}
-quiz <- c('The guy in front of me just bought a pound of bacon, a bouquet, and a case of', 'Youre the reason why I smile everyday. Can you follow me please? It would mean the', 'Hey sunshine, can you follow me and make me the', 'Very early observations on the Bills game: Offense still struggling but the', 'Go on a romantic date at the', "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my", "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little", "Be grateful for the good times and keep the faith during the", "If this isn't the cutest thing you've ever seen, then you must be")
-quiz <- data.frame(quiz)
-str(quiz)
+# df.train.2g <- readRDS('./data/en_US/df/train.2g.df')
+# df.train.3g <- readRDS('./data/en_US/df/train.3g.df')
+# df.train.4g <- readRDS('./data/en_US/df/train.4g.df')
 
 get_prior3 <- function(text) {
+    text <- as.character(text)
+    text <- tolower(trimws(text))
     text <- as.character(text)
     words = unlist(strsplit(text, ' '))
     len <- length(words)
@@ -394,6 +443,8 @@ get_prior3 <- function(text) {
 
 get_prior2 <- function(text) {
     text <- as.character(text)
+    text <- tolower(trimws(text))
+    text <- as.character(text)
     words = unlist(strsplit(text, ' '))
     len <- length(words)
     paste(words[(len-1):len], collapse = ' ')
@@ -401,10 +452,20 @@ get_prior2 <- function(text) {
 
 get_prior1 <- function(text) {
     text <- as.character(text)
+    text <- tolower(trimws(text))
+    text <- as.character(text)
     words = unlist(strsplit(text, ' '))
     len <- length(words)
     words[len]
 }
+```
+
+### quiz 1
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+quiz <- c('The guy in front of me just bought a pound of bacon, a bouquet, and a case of', 'Youre the reason why I smile everyday. Can you follow me please? It would mean the', 'Hey sunshine, can you follow me and make me the', 'Very early observations on the Bills game: Offense still struggling but the', 'Go on a romantic date at the', "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my", "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little", "Be grateful for the good times and keep the faith during the", "If this isn't the cutest thing you've ever seen, then you must be")
+quiz <- data.frame(quiz)
+str(quiz)
 
 quiz$prior3 <- sapply(quiz$quiz, get_prior3)
 quiz$prior2 <- sapply(quiz$quiz, get_prior2)
@@ -414,7 +475,25 @@ quiz$pred.3g <- sapply(quiz$prior3, pred.4g)
 quiz$pred.2g <- sapply(quiz$prior2, pred.3g)
 quiz$pred.1g <- sapply(quiz$prior1, pred.2g)
 
-quiz[, 2:7]
+quiz$pred.backoff <- sapply(quiz$prior3, pred.backoff)
+quiz[, 2:8]
 ```
 
+### Quiz 2
 
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+quiz3 <- c("When you breathe, I want to be the air for you. I'll be there for you, I'd live and I'd", "Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his", "I'd give anything to see arctic monkeys this", "Talking to your mom has the same effect as a hug and helps reduce your", "When you were in Holland you were like 1 inch away from me but you hadn't time to take a", "I'd just like all of these questions answered, a presentation of evidence, and a jury to settle the", "I can't deal with unsymetrical things. I can't even hold an uneven number of bags of groceries in each", "Every inch of you is perfect from the bottom to the", "I’m thankful my childhood was filled with imagination and bruises from playing", "I like how the same people are in almost all of Adam Sandler's")
+quiz3 <- data.frame(quiz3)
+str(quiz3)
+
+quiz3$prior3 <- sapply(quiz3$quiz3, get_prior3)
+quiz3$prior2 <- sapply(quiz3$quiz3, get_prior2)
+quiz3$prior1 <- sapply(quiz3$quiz3, get_prior1)
+quiz3[-1]
+
+quiz3$pred.4g <- sapply(quiz3$prior3, pred.4g)
+quiz3$pred.3g <- sapply(quiz3$prior2, pred.3g)
+quiz3$pred.2g <- sapply(quiz3$prior1, pred.2g)
+
+quiz3[, 5:8]
+```

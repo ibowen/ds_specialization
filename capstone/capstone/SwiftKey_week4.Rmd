@@ -1,0 +1,706 @@
+---
+title: "SwiftKey_week4.Rmd"
+author: "Bowen Liu"
+date: "June 25, 2016"
+output: html_document
+description: "seperate corpus among twitter, blogs, and news"
+---
+
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+Sys.setenv(JAVA_HOME="")
+options(java.parameters="-Xmx6g")
+options(mc.cores = 1)
+library(tm)
+library(RWeka)
+library(SnowballC)
+library(parallel)
+library(dplyr)
+```
+
+### Define functions
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# function to tranform one line list into document term frequency
+clean_corpus <- function(corpus) {
+    # remove non-ascill
+    corpus <- tm_map(corpus, content_transformer(function(x) iconv(x, "latin1", "ASCII", sub="")))
+    # to lower case
+    # no applicable method for 'content' applied to an object of class "character"
+    # change tolower into content_transformer(tolower)
+    corpus <- tm_map(corpus, content_transformer(tolower))
+    # remove profanity words
+    # http://www.cs.cmu.edu/~biglou/resources/bad-words.txt
+    profanity <- readLines('./data/en_US/profanity.txt')
+    corpus <- tm_map(corpus, removeWords, profanity)
+    # remove non-alphanumeric signs, space or apostrophe but keep
+    corpus <- tm_map(corpus, content_transformer(function(x) gsub("[^[:alnum:][:space:]']", "", x, perl = TRUE)))
+    # remove numbers
+    corpus <- tm_map(corpus, removeNumbers)
+    # strip whitespace among words
+    corpus <- tm_map(corpus, stripWhitespace)
+    # stem words
+    corpus <- tm_map(corpus, stemDocument)
+    corpus
+}
+
+# function to tokenize the tdm
+tokenizer.1g <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1, delimiters = ' '))
+tokenizer.2g <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2, delimiters = ' '))
+tokenizer.3g <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3, delimiters = ' '))
+tokenizer.4g <- function(x) NGramTokenizer(x, Weka_control(min = 4, max = 4, delimiters = ' '))
+```
+
+### Train data preprocessing, transform text into freq dataframe
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# twitter part
+# transform train text into corpus
+corpus.twitter.train <- VCorpus(DirSource(directory="./data/en_US/train/twitter", encoding="UTF-8"), readerControl=list(language="en"))
+
+# clean corpus
+corpus.twitter.train <- clean_corpus(corpus.twitter.train)
+tdm.twitter.train.1g <- TermDocumentMatrix(corpus.twitter.train, control = list(tokenize = tokenizer.1g))
+tdm.twitter.train.2g <- TermDocumentMatrix(corpus.twitter.train, control = list(tokenize = tokenizer.2g))
+tdm.twitter.train.3g <- TermDocumentMatrix(corpus.twitter.train, control = list(tokenize = tokenizer.3g))
+tdm.twitter.train.4g <- TermDocumentMatrix(corpus.twitter.train, control = list(tokenize = tokenizer.4g))
+
+inspect(tdm.twitter.train.2g[1:100, 1])
+# save tdf
+saveRDS(tdm.twitter.train.1g, file = './data/en_US/tdm/tdm.twitter.train.1g')
+saveRDS(tdm.twitter.train.2g, file = './data/en_US/tdm/tdm.twitter.train.2g')
+saveRDS(tdm.twitter.train.3g, file = './data/en_US/tdm/tdm.twitter.train.3g')
+saveRDS(tdm.twitter.train.4g, file = './data/en_US/tdm/tdm.twitter.train.4g')
+
+# blogs part
+# transform train text into corpus
+corpus.blogs.train <- VCorpus(DirSource(directory="./data/en_US/train/blogs", encoding="UTF-8"), readerControl=list(language="en"))
+
+# clean corpus
+corpus.blogs.train <- clean_corpus(corpus.blogs.train)
+tdm.blogs.train.1g <- TermDocumentMatrix(corpus.blogs.train, control = list(tokenize = tokenizer.1g))
+tdm.blogs.train.2g <- TermDocumentMatrix(corpus.blogs.train, control = list(tokenize = tokenizer.2g))
+tdm.blogs.train.3g <- TermDocumentMatrix(corpus.blogs.train, control = list(tokenize = tokenizer.3g))
+tdm.blogs.train.4g <- TermDocumentMatrix(corpus.blogs.train, control = list(tokenize = tokenizer.4g))
+
+inspect(tdm.blogs.train.2g[1:100, 1])
+# save tdf
+saveRDS(tdm.blogs.train.1g, file = './data/en_US/tdm/tdm.blogs.train.1g')
+saveRDS(tdm.blogs.train.2g, file = './data/en_US/tdm/tdm.blogs.train.2g')
+saveRDS(tdm.blogs.train.3g, file = './data/en_US/tdm/tdm.blogs.train.3g')
+saveRDS(tdm.blogs.train.4g, file = './data/en_US/tdm/tdm.blogs.train.4g')
+
+# news part
+# transform train text into corpus
+corpus.news.train <- VCorpus(DirSource(directory="./data/en_US/train/news", encoding="UTF-8"), readerControl=list(language="en"))
+
+# clean corpus
+corpus.news.train <- clean_corpus(corpus.news.train)
+tdm.news.train.1g <- TermDocumentMatrix(corpus.news.train, control = list(tokenize = tokenizer.1g))
+tdm.news.train.2g <- TermDocumentMatrix(corpus.news.train, control = list(tokenize = tokenizer.2g))
+tdm.news.train.3g <- TermDocumentMatrix(corpus.news.train, control = list(tokenize = tokenizer.3g))
+tdm.news.train.4g <- TermDocumentMatrix(corpus.news.train, control = list(tokenize = tokenizer.4g))
+
+inspect(tdm.news.train.2g[1:100, 1])
+# save tdf
+saveRDS(tdm.news.train.1g, file = './data/en_US/tdm/tdm.news.train.1g')
+saveRDS(tdm.news.train.2g, file = './data/en_US/tdm/tdm.news.train.2g')
+saveRDS(tdm.news.train.3g, file = './data/en_US/tdm/tdm.news.train.3g')
+saveRDS(tdm.news.train.4g, file = './data/en_US/tdm/tdm.news.train.4g')
+```
+
+### calculate conditional probalibity based on tdm
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# functions to get priors and posterior
+get_1of2 <- function(bigram) {
+    bigram <- as.character(bigram)
+    unlist(strsplit(bigram, ' '))[1]
+}
+
+get_12of3 <- function(trigram) {
+    trigram <- as.character(trigram)
+    split_words <- unlist(strsplit(trigram, ' '))
+    paste(split_words[1], split_words[2], sep=' ')
+}
+
+get_123of4 <- function(quargram) {
+    quargram <- as.character(quargram)
+    words <- unlist(strsplit(quargram, ' '))
+    paste(words[1], words[2], words[3], sep=' ')
+}
+
+get_posterior <- function(ngram) {
+    ngram <- as.character(ngram)
+    words = unlist(strsplit(ngram, ' '))
+    words[length(words)]
+}
+```
+
+### unigram part
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# twitter part
+tdm.twitter.train.1g <- readRDS('./data/en_US/tdm/tdm.twitter.train.1g')
+inspect(tdm.twitter.train.1g[1:100, 1])
+
+tdm.twitter.train.1g <- as.matrix(tdm.twitter.train.1g)
+tdm.twitter.train.1g <- rowSums(tdm.twitter.train.1g)
+tdm.twitter.train.1g <- sort(tdm.twitter.train.1g, decreasing = TRUE)
+df.twitter.train.1g <- data.frame(term = names(tdm.twitter.train.1g), freq.term = tdm.twitter.train.1g)
+# laplace smoothing
+term.total.1g <- nrow(df.twitter.train.1g)
+freq.total.1g <- sum(df.twitter.train.1g$freq.term)
+df.twitter.train.1g$proba <- log((df.twitter.train.1g$freq.term + 1) / (freq.total.1g + term.total.1g))
+head(df.twitter.train.1g)
+saveRDS(df.twitter.train.1g, file = './data/en_US/df/train.twitter.1g.df')
+
+# blogs part
+tdm.blogs.train.1g <- readRDS('./data/en_US/tdm/tdm.blogs.train.1g')
+inspect(tdm.blogs.train.1g[1:100, 1])
+
+tdm.blogs.train.1g <- as.matrix(tdm.blogs.train.1g)
+tdm.blogs.train.1g <- rowSums(tdm.blogs.train.1g)
+tdm.blogs.train.1g <- sort(tdm.blogs.train.1g, decreasing = TRUE)
+df.blogs.train.1g <- data.frame(term = names(tdm.blogs.train.1g), freq.term = tdm.blogs.train.1g)
+# laplace smoothing
+term.total.1g <- nrow(df.blogs.train.1g)
+freq.total.1g <- sum(df.blogs.train.1g$freq.term)
+df.blogs.train.1g$proba <- log((df.blogs.train.1g$freq.term + 1) / (freq.total.1g + term.total.1g))
+head(df.blogs.train.1g)
+saveRDS(df.blogs.train.1g, file = './data/en_US/df/train.blogs.1g.df')
+
+# news part
+tdm.news.train.1g <- readRDS('./data/en_US/tdm/tdm.news.train.1g')
+inspect(tdm.news.train.1g[1:100, 1])
+
+tdm.news.train.1g <- as.matrix(tdm.news.train.1g)
+tdm.news.train.1g <- rowSums(tdm.news.train.1g)
+tdm.news.train.1g <- sort(tdm.news.train.1g, decreasing = TRUE)
+df.news.train.1g <- data.frame(term = names(tdm.news.train.1g), freq.term = tdm.news.train.1g)
+# laplace smoothing
+term.total.1g <- nrow(df.news.train.1g)
+freq.total.1g <- sum(df.news.train.1g$freq.term)
+df.news.train.1g$proba <- log((df.news.train.1g$freq.term + 1) / (freq.total.1g + term.total.1g))
+head(df.news.train.1g)
+saveRDS(df.news.train.1g, file = './data/en_US/df/train.news.1g.df')
+```
+
+### bigram part
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# twitter part
+tdm.twitter.train.2g <- readRDS('./data/en_US/tdm/tdm.twitter.train.2g')
+tdm.twitter.train.2g <- as.matrix(tdm.twitter.train.2g)
+tdm.twitter.train.2g <- rowSums(tdm.twitter.train.2g)
+tdm.twitter.train.2g <- sort(tdm.twitter.train.2g, decreasing = TRUE)
+df.twitter.train.2g <- data.frame(term = names(tdm.twitter.train.2g), freq.term = tdm.twitter.train.2g)
+
+df.twitter.train.2g$prior <- sapply(df.twitter.train.2g$term, get_1of2)
+# summarize the prior
+by_prior.2g <- group_by(df.twitter.train.2g, prior)
+sum.prior.2g <- as.data.frame(summarise(by_prior.2g, sum(freq.term)))
+rownames(sum.prior.2g) <- sum.prior.2g$prior
+sum.prior.2g$prior <- NULL
+# total unique prior
+prior.total.2g <- nrow(sum.prior.2g)
+
+# add prior frequence
+df.twitter.train.2g$freq.prior <- mclapply(df.twitter.train.2g$prior, FUN = function(x) sum.prior.2g[x,], mc.cores = 6L)
+df.twitter.train.2g$freq.prior <- sapply(df.twitter.train.2g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.twitter.train.2g$posterior <- sapply(df.twitter.train.2g$term, get_posterior)
+
+# laplace smoothing
+df.twitter.train.2g$proba <- log((df.twitter.train.2g$freq.term + 1) / (df.twitter.train.2g$freq.prior + prior.total.2g))
+head(df.twitter.train.2g)
+saveRDS(df.twitter.train.2g, file = './data/en_US/df/train.twitter.2g.df')
+
+# blogs part
+tdm.blogs.train.2g <- readRDS('./data/en_US/tdm/tdm.blogs.train.2g')
+tdm.blogs.train.2g <- as.matrix(tdm.blogs.train.2g)
+tdm.blogs.train.2g <- rowSums(tdm.blogs.train.2g)
+tdm.blogs.train.2g <- sort(tdm.blogs.train.2g, decreasing = TRUE)
+df.blogs.train.2g <- data.frame(term = names(tdm.blogs.train.2g), freq.term = tdm.blogs.train.2g)
+
+df.blogs.train.2g$prior <- sapply(df.blogs.train.2g$term, get_1of2)
+# summarize the prior
+by_prior.2g <- group_by(df.blogs.train.2g, prior)
+sum.prior.2g <- as.data.frame(summarise(by_prior.2g, sum(freq.term)))
+rownames(sum.prior.2g) <- sum.prior.2g$prior
+sum.prior.2g$prior <- NULL
+# total unique prior
+prior.total.2g <- nrow(sum.prior.2g)
+
+# add prior frequence
+df.blogs.train.2g$freq.prior <- mclapply(df.blogs.train.2g$prior, FUN = function(x) sum.prior.2g[x,], mc.cores = 6L)
+df.blogs.train.2g$freq.prior <- sapply(df.blogs.train.2g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.blogs.train.2g$posterior <- sapply(df.blogs.train.2g$term, get_posterior)
+
+# laplace smoothing
+df.blogs.train.2g$proba <- log((df.blogs.train.2g$freq.term + 1) / (df.blogs.train.2g$freq.prior + prior.total.2g))
+head(df.blogs.train.2g)
+saveRDS(df.blogs.train.2g, file = './data/en_US/df/train.blogs.2g.df')
+
+# news part
+tdm.news.train.2g <- readRDS('./data/en_US/tdm/tdm.news.train.2g')
+tdm.news.train.2g <- as.matrix(tdm.news.train.2g)
+tdm.news.train.2g <- rowSums(tdm.news.train.2g)
+tdm.news.train.2g <- sort(tdm.news.train.2g, decreasing = TRUE)
+df.news.train.2g <- data.frame(term = names(tdm.news.train.2g), freq.term = tdm.news.train.2g)
+
+df.news.train.2g$prior <- sapply(df.news.train.2g$term, get_1of2)
+# summarize the prior
+by_prior.2g <- group_by(df.news.train.2g, prior)
+sum.prior.2g <- as.data.frame(summarise(by_prior.2g, sum(freq.term)))
+rownames(sum.prior.2g) <- sum.prior.2g$prior
+sum.prior.2g$prior <- NULL
+# total unique prior
+prior.total.2g <- nrow(sum.prior.2g)
+
+# add prior frequence
+df.news.train.2g$freq.prior <- mclapply(df.news.train.2g$prior, FUN = function(x) sum.prior.2g[x,], mc.cores = 6L)
+df.news.train.2g$freq.prior <- sapply(df.news.train.2g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.news.train.2g$posterior <- sapply(df.news.train.2g$term, get_posterior)
+
+# laplace smoothing
+df.news.train.2g$proba <- log((df.news.train.2g$freq.term + 1) / (df.news.train.2g$freq.prior + prior.total.2g))
+head(df.news.train.2g)
+saveRDS(df.news.train.2g, file = './data/en_US/df/train.news.2g.df')
+```
+
+### trigram part
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# twitter part
+tdm.twitter.train.3g <- readRDS('./data/en_US/tdm/tdm.twitter.train.3g')
+tdm.twitter.train.3g <- as.matrix(tdm.twitter.train.3g)
+tdm.twitter.train.3g <- rowSums(tdm.twitter.train.3g)
+tdm.twitter.train.3g <- sort(tdm.twitter.train.3g, decreasing = TRUE)
+df.twitter.train.3g <- data.frame(term = names(tdm.twitter.train.3g), freq.term = tdm.twitter.train.3g)
+
+df.twitter.train.3g$prior <- sapply(df.twitter.train.3g$term, get_12of3)
+# summarize the prior
+by_prior.3g <- group_by(df.twitter.train.3g, prior)
+sum.prior.3g <- as.data.frame(summarise(by_prior.3g, sum(freq.term)))
+rownames(sum.prior.3g) <- sum.prior.3g$prior
+sum.prior.3g$prior <- NULL
+# total unique prior
+prior.total.3g <- nrow(sum.prior.3g)
+
+# add prior frequence
+df.twitter.train.3g$freq.prior <- mclapply(df.twitter.train.3g$prior, FUN = function(x) sum.prior.3g[x,], mc.cores = 6L)
+df.twitter.train.3g$freq.prior <- sapply(df.twitter.train.3g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.twitter.train.3g$posterior <- sapply(df.twitter.train.3g$term, get_posterior)
+
+# laplace smoothing
+df.twitter.train.3g$proba <- log((df.twitter.train.3g$freq.term + 1) / (df.twitter.train.3g$freq.prior + prior.total.3g))
+head(df.twitter.train.3g)
+saveRDS(df.twitter.train.3g, file = './data/en_US/df/train.twitter.3g.df')
+
+# blogs part
+tdm.blogs.train.3g <- readRDS('./data/en_US/tdm/tdm.blogs.train.3g')
+tdm.blogs.train.3g <- as.matrix(tdm.blogs.train.3g)
+tdm.blogs.train.3g <- rowSums(tdm.blogs.train.3g)
+tdm.blogs.train.3g <- sort(tdm.blogs.train.3g, decreasing = TRUE)
+df.blogs.train.3g <- data.frame(term = names(tdm.blogs.train.3g), freq.term = tdm.blogs.train.3g)
+
+df.blogs.train.3g$prior <- sapply(df.blogs.train.3g$term, get_12of3)
+# summarize the prior
+by_prior.3g <- group_by(df.blogs.train.3g, prior)
+sum.prior.3g <- as.data.frame(summarise(by_prior.3g, sum(freq.term)))
+rownames(sum.prior.3g) <- sum.prior.3g$prior
+sum.prior.3g$prior <- NULL
+# total unique prior
+prior.total.3g <- nrow(sum.prior.3g)
+
+# add prior frequence
+df.blogs.train.3g$freq.prior <- mclapply(df.blogs.train.3g$prior, FUN = function(x) sum.prior.3g[x,], mc.cores = 6L)
+df.blogs.train.3g$freq.prior <- sapply(df.blogs.train.3g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.blogs.train.3g$posterior <- sapply(df.blogs.train.3g$term, get_posterior)
+
+# laplace smoothing
+df.blogs.train.3g$proba <- log((df.blogs.train.3g$freq.term + 1) / (df.blogs.train.3g$freq.prior + prior.total.3g))
+head(df.blogs.train.3g)
+saveRDS(df.blogs.train.3g, file = './data/en_US/df/train.blogs.3g.df')
+
+# news part
+tdm.news.train.3g <- readRDS('./data/en_US/tdm/tdm.news.train.3g')
+tdm.news.train.3g <- as.matrix(tdm.news.train.3g)
+tdm.news.train.3g <- rowSums(tdm.news.train.3g)
+tdm.news.train.3g <- sort(tdm.news.train.3g, decreasing = TRUE)
+df.news.train.3g <- data.frame(term = names(tdm.news.train.3g), freq.term = tdm.news.train.3g)
+
+df.news.train.3g$prior <- sapply(df.news.train.3g$term, get_12of3)
+# summarize the prior
+by_prior.3g <- group_by(df.news.train.3g, prior)
+sum.prior.3g <- as.data.frame(summarise(by_prior.3g, sum(freq.term)))
+rownames(sum.prior.3g) <- sum.prior.3g$prior
+sum.prior.3g$prior <- NULL
+# total unique prior
+prior.total.3g <- nrow(sum.prior.3g)
+
+# add prior frequence
+df.news.train.3g$freq.prior <- mclapply(df.news.train.3g$prior, FUN = function(x) sum.prior.3g[x,], mc.cores = 6L)
+df.news.train.3g$freq.prior <- sapply(df.news.train.3g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.news.train.3g$posterior <- sapply(df.news.train.3g$term, get_posterior)
+
+# laplace smoothing
+df.news.train.3g$proba <- log((df.news.train.3g$freq.term + 1) / (df.news.train.3g$freq.prior + prior.total.3g))
+head(df.news.train.3g)
+saveRDS(df.news.train.3g, file = './data/en_US/df/train.news.3g.df')
+```
+
+### quargram part
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# twitter part
+tdm.twitter.train.4g <- readRDS('./data/en_US/tdm/tdm.twitter.train.4g')
+tdm.twitter.train.4g <- as.matrix(tdm.twitter.train.4g)
+tdm.twitter.train.4g <- rowSums(tdm.twitter.train.4g)
+tdm.twitter.train.4g <- sort(tdm.twitter.train.4g, decreasing = TRUE)
+df.twitter.train.4g <- data.frame(term = names(tdm.twitter.train.4g), freq.term = tdm.twitter.train.4g)
+
+df.twitter.train.4g$prior <- sapply(df.twitter.train.4g$term, get_123of4)
+# summarize the prior
+by_prior.4g <- group_by(df.twitter.train.4g, prior)
+sum.prior.4g <- as.data.frame(summarise(by_prior.4g, sum(freq.term)))
+rownames(sum.prior.4g) <- sum.prior.4g$prior
+sum.prior.4g$prior <- NULL
+# total unique prior
+prior.total.4g <- nrow(sum.prior.4g)
+
+# add prior frequence
+df.twitter.train.4g$freq.prior <- mclapply(df.twitter.train.4g$prior, FUN = function(x) sum.prior.4g[x,], mc.cores = 6L)
+df.twitter.train.4g$freq.prior <- sapply(df.twitter.train.4g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.twitter.train.4g$posterior <- sapply(df.twitter.train.4g$term, get_posterior)
+
+# laplace smoothing
+df.twitter.train.4g$proba <- log((df.twitter.train.4g$freq.term + 1) / (df.twitter.train.4g$freq.prior + prior.total.4g))
+head(df.twitter.train.4g)
+saveRDS(df.twitter.train.4g, file = './data/en_US/df/train.twitter.4g.df')
+
+# blogs part
+tdm.blogs.train.4g <- readRDS('./data/en_US/tdm/tdm.blogs.train.4g')
+tdm.blogs.train.4g <- as.matrix(tdm.blogs.train.4g)
+tdm.blogs.train.4g <- rowSums(tdm.blogs.train.4g)
+tdm.blogs.train.4g <- sort(tdm.blogs.train.4g, decreasing = TRUE)
+df.blogs.train.4g <- data.frame(term = names(tdm.blogs.train.4g), freq.term = tdm.blogs.train.4g)
+
+df.blogs.train.4g$prior <- sapply(df.blogs.train.4g$term, get_123of4)
+# summarize the prior
+by_prior.4g <- group_by(df.blogs.train.4g, prior)
+sum.prior.4g <- as.data.frame(summarise(by_prior.4g, sum(freq.term)))
+rownames(sum.prior.4g) <- sum.prior.4g$prior
+sum.prior.4g$prior <- NULL
+# total unique prior
+prior.total.4g <- nrow(sum.prior.4g)
+
+# add prior frequence
+df.blogs.train.4g$freq.prior <- mclapply(df.blogs.train.4g$prior, FUN = function(x) sum.prior.4g[x,], mc.cores = 6L)
+df.blogs.train.4g$freq.prior <- sapply(df.blogs.train.4g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.blogs.train.4g$posterior <- sapply(df.blogs.train.4g$term, get_posterior)
+
+# laplace smoothing
+df.blogs.train.4g$proba <- log((df.blogs.train.4g$freq.term + 1) / (df.blogs.train.4g$freq.prior + prior.total.4g))
+head(df.blogs.train.4g)
+saveRDS(df.blogs.train.4g, file = './data/en_US/df/train.blogs.4g.df')
+
+# news part
+tdm.news.train.4g <- readRDS('./data/en_US/tdm/tdm.news.train.4g')
+tdm.news.train.4g <- as.matrix(tdm.news.train.4g)
+tdm.news.train.4g <- rowSums(tdm.news.train.4g)
+tdm.news.train.4g <- sort(tdm.news.train.4g, decreasing = TRUE)
+df.news.train.4g <- data.frame(term = names(tdm.news.train.4g), freq.term = tdm.news.train.4g)
+
+df.news.train.4g$prior <- sapply(df.news.train.4g$term, get_123of4)
+# summarize the prior
+by_prior.4g <- group_by(df.news.train.4g, prior)
+sum.prior.4g <- as.data.frame(summarise(by_prior.4g, sum(freq.term)))
+rownames(sum.prior.4g) <- sum.prior.4g$prior
+sum.prior.4g$prior <- NULL
+# total unique prior
+prior.total.4g <- nrow(sum.prior.4g)
+
+# add prior frequence
+df.news.train.4g$freq.prior <- mclapply(df.news.train.4g$prior, FUN = function(x) sum.prior.4g[x,], mc.cores = 6L)
+df.news.train.4g$freq.prior <- sapply(df.news.train.4g$freq.prior, FUN = as.vector)
+# add posterior from term
+df.news.train.4g$posterior <- sapply(df.news.train.4g$term, get_posterior)
+
+# laplace smoothing
+df.news.train.4g$proba <- log((df.news.train.4g$freq.term + 1) / (df.news.train.4g$freq.prior + prior.total.4g))
+head(df.news.train.4g)
+saveRDS(df.news.train.4g, file = './data/en_US/df/train.news.4g.df')
+```
+
+### Preprocess validation set
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# transform train text into corpus
+corpus.vali <- VCorpus(DirSource(directory="./data/en_US/vali", encoding="UTF-8"), readerControl=list(language="en"))
+
+# clean corpus
+corpus.vali <- clean_corpus(corpus.vali)
+
+tdm.vali.1g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.1g))
+tdm.vali.2g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.2g))
+tdm.vali.3g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.3g))
+tdm.vali.4g <- TermDocumentMatrix(corpus.vali, control = list(tokenize = tokenizer.4g))
+
+# save tdf
+saveRDS(tdm.vali.1g, file = './data/en_US/tdm/vali.1g.tdm')
+saveRDS(tdm.vali.2g, file = './data/en_US/tdm/vali.2g.tdm')
+saveRDS(tdm.vali.3g, file = './data/en_US/tdm/vali.3g.tdm')
+saveRDS(tdm.vali.4g, file = './data/en_US/tdm/vali.4g.tdm')
+
+# load tdf
+tdm.vali.1g  <- readRDS(file = './data/en_US/tdm/vali.1g.tdm')
+tdm.vali.2g  <- readRDS(file = './data/en_US/tdm/vali.2g.tdm')
+tdm.vali.3g  <- readRDS(file = './data/en_US/tdm/vali.3g.tdm')
+tdm.vali.4g  <- readRDS(file = './data/en_US/tdm/vali.4g.tdm')
+
+# bigram part
+tdm.vali.2g <- as.matrix(tdm.vali.2g)
+tdm.vali.2g <- rowSums(tdm.vali.2g)
+tdm.vali.2g <- sort(tdm.vali.2g, decreasing = TRUE)
+head(tdm.vali.2g)
+
+df.vali.2g <- data.frame(term = names(tdm.vali.2g))
+df.vali.2g$prior <- sapply(df.vali.2g$term, get_1of2)
+df.vali.2g$posterior <- sapply(df.vali.2g$term, get_posterior)
+head(df.vali.2g)
+saveRDS(df.vali.2g, file = './data/en_US/df/vali.2g.df')
+
+# trigram part
+tdm.vali.3g <- as.matrix(tdm.vali.3g)
+tdm.vali.3g <- rowSums(tdm.vali.3g)
+tdm.vali.3g <- sort(tdm.vali.3g, decreasing = TRUE)
+head(tdm.vali.3g)
+
+df.vali.3g <- data.frame(term = names(tdm.vali.3g))
+df.vali.3g$prior <- sapply(df.vali.3g$term, get_12of3)
+df.vali.3g$posterior <- sapply(df.vali.3g$term, get_posterior)
+head(df.vali.3g)
+saveRDS(df.vali.3g, file = './data/en_US/df/vali.3g.df')
+
+# quargram part
+tdm.vali.4g <- as.matrix(tdm.vali.4g)
+tdm.vali.4g <- rowSums(tdm.vali.4g)
+tdm.vali.4g <- sort(tdm.vali.4g, decreasing = TRUE)
+head(tdm.vali.4g)
+
+df.vali.4g <- data.frame(term = names(tdm.vali.4g))
+df.vali.4g$prior <- sapply(df.vali.4g$term, get_123of4)
+df.vali.4g$posterior <- sapply(df.vali.4g$term, get_posterior)
+head(df.vali.4g)
+saveRDS(df.vali.4g, file = './data/en_US/df/vali.4g.df')
+
+```
+
+### Validate the performance of models
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# function to predict the next word
+pred.1g <- function(df) {
+    pred <- arrange(df, desc(proba))[1:3, 'posterior']
+    paste(pred, collapse = ' ')
+}
+
+pred.2g <- function(predictor, df) {
+    pred <- arrange(filter(df, prior == predictor), desc(proba))[1:3, 'posterior']
+    pred <- pred[!is.na(pred)]
+    paste(pred, collapse = ' ')
+}
+
+pred.3g <- function(predictor, df) {
+    pred <- arrange(filter(df, prior == predictor), desc(proba))[1:3, 'posterior']
+    pred <- pred[!is.na(pred)]
+    paste(pred, collapse = ' ')
+}
+
+pred.4g <- function(predictor, df) {
+    pred <- arrange(filter(df, prior == predictor), desc(proba))[1:3, 'posterior']
+    pred <- pred[!is.na(pred)]
+    paste(pred, collapse = ' ')
+}
+
+# backoff
+pred.backoff <- function(predictor, df) {
+    pred.4 <- unlist(strsplit(pred.4g(predictor, df), ' '))
+    # back off to 3g
+    predictor <- paste(unlist(strsplit(predictor, ' '))[2:3], collapse = ' ')
+    pred.3 <- unlist(strsplit(pred.3g(predictor, df), ' '))
+    # back off to 2g
+    predictor <- unlist(strsplit(predictor, ' '))[2]
+    pred.2 <- unlist(strsplit(pred.2g(predictor, df), ' '))
+    # back off to 1g
+    pred.1 <- c('the', 'to', 'and')
+    
+    # concatenate all preds together
+    
+    pred <- c(pred.4, pred.3, pred.2, pred.1, recursive=TRUE)
+    paste(unique(pred)[1:3], collapse = ' ')
+}
+```
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# load train and validation df
+df.train.1g  <- readRDS(file = './data/en_US/df/train.1g.df')
+df.train.2g  <- readRDS(file = './data/en_US/df/train.2g.df')
+df.train.3g  <- readRDS(file = './data/en_US/df/train.3g.df')
+df.train.4g  <- readRDS(file = './data/en_US/df/trainß.4g.df')
+
+df.vali.2g  <- readRDS(file = './data/en_US/df/vali.2g.df')
+df.vali.3g  <- readRDS(file = './data/en_US/df/vali.3g.df')
+df.vali.4g  <- readRDS(file = './data/en_US/df/vali.4g.df')
+
+```
+
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+# bigram prediction
+ptm <- proc.time()
+df.vali.2g$pred <- mclapply(df.vali.2g$prior, FUN = pred.2g, mc.cores = 6L)
+df.vali.2g$pred <- sapply(df.vali.2g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#    user  system elapsed 
+# 1230.205   32.815  113.220
+head(df.vali.2g)
+# bigram accuracy: 0.7124578
+nrow(df.vali.2g[df.vali.2g$posterior %in% unlist(strsplit(df.vali.2g$pred, ' ')), ]) / nrow(df.vali.2g)
+
+# trigram prediction
+ptm <- proc.time()
+df.vali.3g$pred <- mclapply(df.vali.3g$prior, FUN = pred.3g, mc.cores = 6L)
+df.vali.3g$pred <- sapply(df.vali.3g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#   user  system elapsed 
+# 1149.695   32.076  221.823
+
+head(df.vali.3g)
+# trigram accuracy: 0.8469944
+nrow(df.vali.3g[df.vali.3g$posterior %in% unlist(strsplit(df.vali.3g$pred, ' ')), ]) / nrow(df.vali.3g)
+
+# quargram prediction
+ptm <- proc.time()
+df.vali.4g$pred <- mclapply(df.vali.4g$prior, FUN = pred.4g, mc.cores = 6L)
+df.vali.4g$pred <- sapply(df.vali.4g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#    user  system elapsed 
+# 1348.187   36.471  242.216 
+
+head(df.vali.4g)
+# quargram accuracy: 0.7938771
+nrow(df.vali.4g[df.vali.4g$posterior %in% unlist(strsplit(df.vali.4g$pred, ' ')), ]) / nrow(df.vali.4g)
+
+
+# backoff prediction
+ptm <- proc.time()
+df.vali.4g$pred.backoff <- mclapply(df.vali.4g$prior, FUN = pred.backoff, mc.cores = 6L)
+df.vali.4g$pred.backoff <- sapply(df.vali.4g$pred, FUN = as.vector)
+print(proc.time() - ptm)
+#   user  system elapsed 
+# 3142.613   80.217  664.474 
+
+head(df.vali.4g)
+# backoff accuracy: 0.7938771
+
+nrow(df.vali.4g[df.vali.4g$posterior %in% unlist(strsplit(df.vali.4g$pred.backoff, ' ')), ]) / nrow(df.vali.4g)
+
+test <- df.vali.4g[1:1000,]
+head(test)
+test$pred.backoff <- mclapply(test$prior, FUN = pred.backoff, mc.cores = 6L)
+test$pred.backoff <- sapply(test$pred, FUN = as.vector)
+head(test)
+nrow(test[test$posterior %in% unlist(strsplit(test$pred.backoff, ' ')), ]) / nrow(test)
+```
+
+```{r}
+# Questions to consider:
+# 1. How does the model perform for different choices of the parameters and size of the model?
+# The model performs slower as the number of parameters and size of the model increase.
+
+# 2. How much does the model slow down for the performance you gain?
+# The elasped time incease from 26.919s to 43.591s as from bigram to quargram
+
+# 3. Does perplexity correlate with the other measures of accuracy?
+# not use perplexity at all.
+
+# 4. Can you reduce the size of the model (number of parameters) without reducing performance?
+# Trigram is far better than bigram and only slightly lower than quargram in my validation set.
+
+```
+
+### Quiz 2
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+df.train.2g <- readRDS('./data/en_US/df/train.2g.df')
+df.train.3g <- readRDS('./data/en_US/df/train.3g.df')
+df.train.4g <- readRDS('./data/en_US/df/train.4g.df')
+
+get_prior3 <- function(text) {
+    text <- as.character(text)
+    words = unlist(strsplit(text, ' '))
+    len <- length(words)
+    paste(words[(len-2):len], collapse = ' ')
+}
+
+get_prior2 <- function(text) {
+    text <- as.character(text)
+    words = unlist(strsplit(text, ' '))
+    len <- length(words)
+    paste(words[(len-1):len], collapse = ' ')
+}
+
+get_prior1 <- function(text) {
+    text <- as.character(text)
+    words = unlist(strsplit(text, ' '))
+    len <- length(words)
+    words[len]
+}
+```
+
+### quiz 1
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+quiz <- c('The guy in front of me just bought a pound of bacon, a bouquet, and a case of', 'Youre the reason why I smile everyday. Can you follow me please? It would mean the', 'Hey sunshine, can you follow me and make me the', 'Very early observations on the Bills game: Offense still struggling but the', 'Go on a romantic date at the', "Well I'm pretty sure my granny has some old bagpipes in her garage I'll dust them off and be on my", "Ohhhhh #PointBreak is on tomorrow. Love that film and haven't seen it in quite some", "After the ice bucket challenge Louis will push his long wet hair out of his eyes with his little", "Be grateful for the good times and keep the faith during the", "If this isn't the cutest thing you've ever seen, then you must be")
+quiz <- data.frame(quiz)
+str(quiz)
+
+quiz$prior3 <- sapply(quiz$quiz, get_prior3)
+quiz$prior2 <- sapply(quiz$quiz, get_prior2)
+quiz$prior1 <- sapply(quiz$quiz, get_prior1)
+
+quiz$pred.4 <- sapply(quiz$prior3, pred.4g, df = df.news.train.4g)
+quiz$pred.3 <- sapply(quiz$prior2, pred.3g, df = df.news.train.3g)
+quiz$pred.2 <- sapply(quiz$prior1, pred.2g, df = df.news.train.2g)
+
+quiz$pred.backoff <- sapply(quiz$prior3, pred.backoff, df = df.news.train.4g)
+quiz[, 2:8]
+```
+
+### Quiz 2
+
+```{r,cache=FALSE, warning=FALSE, message=FALSE}
+quiz3 <- c("When you breathe, I want to be the air for you. I'll be there for you, I'd live and I'd", "Guy at my table's wife got up to go to the bathroom and I asked about dessert and he started telling me about his", "I'd give anything to see arctic monkeys this", "Talking to your mom has the same effect as a hug and helps reduce your", "When you were in Holland you were like 1 inch away from me but you hadn't time to take a", "I'd just like all of these questions answered, a presentation of evidence, and a jury to settle the", "I can't deal with unsymetrical things. I can't even hold an uneven number of bags of groceries in each", "Every inch of you is perfect from the bottom to the", "I’m thankful my childhood was filled with imagination and bruises from playing", "I like how the same people are in almost all of Adam Sandler's")
+quiz3 <- data.frame(quiz3)
+str(quiz3)
+
+quiz3$prior3 <- sapply(quiz3$quiz3, get_prior3)
+quiz3$prior2 <- sapply(quiz3$quiz3, get_prior2)
+quiz3$prior1 <- sapply(quiz3$quiz3, get_prior1)
+quiz3[-1]
+
+quiz3$pred.4g <- sapply(quiz3$prior3, pred.4g)
+quiz3$pred.3g <- sapply(quiz3$prior2, pred.3g)
+quiz3$pred.2g <- sapply(quiz3$prior1, pred.2g)
+
+quiz3[, 5:8]
+```

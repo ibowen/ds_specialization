@@ -1,0 +1,61 @@
+---
+title       : Capstone Data Science Project
+subtitle    : SwiftKey Text Prediction
+author      : Bowen Liu
+job         : 
+framework   : io2012        # {io2012, html5slides, shower, dzslides, ...}
+highlighter : highlight.js  # {highlight.js, prettify, highlight}
+hitheme     : tomorrow      # 
+widgets     : [mathjax]            # {mathjax, quiz, bootstrap}
+mode        : selfcontained # {standalone, draft}
+knit        : slidify::knit2slides
+---
+
+
+## Objectives
+
+
+- This presentation is for the Capstone Project under Coursera Data Science specialization. 
+
+- The project is to build a shiny application to predict the next word given input text.
+
+- The following slides will briefly walk you through the text prediction pipeline.
+
+---
+
+## Approaches & Modeling
+
+- Pipeline: data cleansing => exploratory analysis => prediction modeling => data product
+- Data source: twitter, blogs, and news texts provided by SwiftKey.
+- Data cleansing: after sampling(50%) texts, the corpus were created and transformed in R tm package to lowercase, stem, and remove punctuation, white space, numbers, and profanity words. Then the cleansed corpus were tokenized into unigram, bigram, trigram, and quargram.
+- Explorartory analysis: [milestone link](https://rpubs.com/bowenliu/capstone_week2)
+- Prediction modeling: the ngrams dataframes were built along with laplace smoothing probabilities. The prediction is to query the dataframe to find the words with highest probabilites. Besides, stupid backoff is used in case of unknown words.
+- Data product: the application is hosted in Shiny.io.
+
+---
+
+## Shiny Application
+
+The application is shown as follows. The text input will be extracted to get the priors based on the ngram modes. The default is bigram so the last word from the input will be extracted. Then the modeling will output the top three prediction words with their probabilities. You can switch ngram modes among bigram, trigram, quargram, and stupid backoff.
+
+<div style='text-align: center;'>
+    <img height='500' width= '800', src='./shiny.jpg' />
+</div>
+
+---
+
+## Project Links
+
+
+[Application link](https://bowenliu.shinyapps.io/SwiftKey_Text_Prediction/)
+
+[Source code link](https://github.com/ibowen/ds_specialization/tree/master/capstone/capstone)
+
+[Slidify link](http://rpubs.com/nierhoff/cdsc)
+
+<!-- Does the link lead to a 5 slide deck on R Pubs? -->
+<!-- Does the slide deck contain a description of the algorithm used to make the prediction? -->
+<!-- Does the slide deck describe the app, give instructions, and describe how it functions? -->
+<!-- How would you describe the experience of using this app? -->
+<!-- Does the app present a novel approach and/or is particularly well done? -->
+<!-- Would you hire this person for your own data science startup company? -->
