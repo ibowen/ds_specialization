@@ -29,7 +29,7 @@ pred.backoff <- function(predictor) {
 
     # cbind all preds together
     preds <- rbind(pred.4, pred.3, pred.2)
-    preds
+    preds[1:3,]
    
 }
 
